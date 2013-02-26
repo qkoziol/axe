@@ -252,8 +252,18 @@ AE2_task_worker(void *_task)
             if(task->op)
                 (task->op)(task->num_necessary_parents, (AE2_task_t *)task->necessary_parents, task->num_sufficient_parents, (AE2_task_t *)task->sufficient_parents, task->op_data);
         } /* end if */
-        else
+        else {
+            /* The task is canceled */
             assert((AE2_status_t)OPA_load_int(&task->status) == AE2_TASK_CANCELED);
+
+            /* Remove references to all necessary parents */
+            for(i = 0; i < task->num_necessary_parents; i++)
+                AE2_task_decr_ref(task->necessary_parents[i]);
+
+            /* Remove references to all sufficient parents */
+            for(i = 0; i < task->num_sufficient_parents; i++)
+                AE2_task_decr_ref(task->sufficient_parents[i]);
+        } /* end else */
 
         /* Update the schedule to reflect that this task is complete, and
          * retrieve new task (AE2_schedule_finish takes ownership of old task)

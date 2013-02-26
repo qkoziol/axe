@@ -313,12 +313,12 @@ AE2_schedule_add(AE2_task_int_t *task)
 
         /* The fetch-and-incr should guarantee (along with similar constructions
          * in AE2_schedule_finish) that only one thread ever sees the last
-         * condition fulfilled, so no need to do compare-and-swap on the status
-         */
-        assert((AE2_status_t)OPA_load_int(&task->status) == AE2_WAITING_FOR_PARENT);
+         * condition fulfilled, however it is still possible (though unlikely)
+         * for another thread to have canceled this task by now, so do a compare
+         * -and-swap to preserve the canceled status in this case */
+        (void)OPA_cas_int(&task->status, (int)AE2_WAITING_FOR_PARENT, (int)AE2_TASK_SCHEDULED);
 
-        /* Update status */
-        OPA_store_int(&task->status, AE2_TASK_SCHEDULED);
+        assert(((AE2_status_t)OPA_load_int(&task->status) == AE2_TASK_SCHEDULED) || ((AE2_status_t)OPA_load_int(&task->status) == AE2_TASK_CANCELED));
 
         /* Write barrier so we know that all changes to the task struct are
          * visible before we enqueue this task and subject it to being picked up
@@ -452,23 +452,22 @@ AE2_schedule_finish(AE2_task_int_t **task/*in,out*/)
              * constructions elsewhere in this function and in AE2_schedule_add)
              * that only one thread ever sees the last condition fulfilled, but
              * we still need compare-and-swap in case this task has been
-             * canceled */
-            if((AE2_status_t)OPA_cas_int(&child_task->status,
-                    (int)AE2_WAITING_FOR_PARENT, (int)AE2_TASK_SCHEDULED)
-                    == AE2_WAITING_FOR_PARENT) {
-                /* Write barrier to make sure the status is updated before
-                 * the task is scheduled */
-                OPA_write_barrier();
+             * canceled.  Still enqueue the task if canceled, but leave marked
+             * as canceled. */
+            (void)OPA_cas_int(&child_task->status, (int)AE2_WAITING_FOR_PARENT, (int)AE2_TASK_SCHEDULED);
+
+            assert(((AE2_status_t)OPA_load_int(&child_task->status) == AE2_TASK_SCHEDULED) || ((AE2_status_t)OPA_load_int(&child_task->status) == AE2_TASK_CANCELED));
+
+            /* Write barrier to make sure the status is updated before
+             * the task is scheduled */
+            OPA_write_barrier();
 
 #ifdef NAF_DEBUG
-                printf("AE2_schedule_finish: enqueue %p nec\n", child_task); fflush(stdout);
+            printf("AE2_schedule_finish: enqueue %p nec\n", child_task); fflush(stdout);
 #endif /* NAF_DEBUG */
 
-                /* Add task to scheduled queue */
-                OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AE2_task_int_t, scheduled_queue_hdr);
-            } /* end if */
-            else
-                assert((AE2_status_t)OPA_load_int(&child_task->status) == AE2_TASK_CANCELED);
+            /* Add task to scheduled queue */
+            OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AE2_task_int_t, scheduled_queue_hdr);
         } /* end if */
 
         /* Decrement ref count on child */
@@ -495,24 +494,22 @@ AE2_schedule_finish(AE2_task_int_t **task/*in,out*/)
                  * constructions elsewhere in this function and in
                  * AE2_schedule_add) that only one thread ever sees the last
                  * condition fulfilled, but we still need compare-and-swap in
-                 * case this task has been canceled */
-                if((AE2_status_t)OPA_cas_int(&child_task->status,
-                        (int)AE2_WAITING_FOR_PARENT, (int)AE2_TASK_SCHEDULED)
-                        == AE2_WAITING_FOR_PARENT) {
+                 * case this task has been canceled.  Still enqueue the task if
+                 * canceled, but leave marked as canceled. */
+                (void)OPA_cas_int(&child_task->status, (int)AE2_WAITING_FOR_PARENT, (int)AE2_TASK_SCHEDULED);
 
-                    /* Write barrier to make sure the status is updated before
-                     * the task is scheduled */
-                    OPA_write_barrier();
+                assert(((AE2_status_t)OPA_load_int(&child_task->status) == AE2_TASK_SCHEDULED) || ((AE2_status_t)OPA_load_int(&child_task->status) == AE2_TASK_CANCELED));
+
+                /* Write barrier to make sure the status is updated before the
+                 * task is scheduled */
+                OPA_write_barrier();
 
 #ifdef NAF_DEBUG
-                    printf("AE2_schedule_finish: enqueue %p suf\n", child_task); fflush(stdout);
+                printf("AE2_schedule_finish: enqueue %p suf\n", child_task); fflush(stdout);
 #endif /* NAF_DEBUG */
 
-                    /* Add task to scheduled queue */
-                    OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AE2_task_int_t, scheduled_queue_hdr);
-                } /* end if */
-                else
-                    assert((AE2_status_t)OPA_load_int(&child_task->status) == AE2_TASK_CANCELED);
+                /* Add task to scheduled queue */
+                OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AE2_task_int_t, scheduled_queue_hdr);
             } /* end if */
 
         /* Decrement ref count on child */
@@ -730,6 +727,14 @@ AE2_schedule_free(AE2_schedule_t *schedule)
     AE2_error_t ret_value = AE2_SUCCEED;
 
     assert(schedule);
+
+    /* By the time we get here the scheduled task queue should be empty.  If we
+     * ever have AE2terminate_engine without WAIT_ALL "short circuit" the
+     * traversal of the tasks then we will need to remove this assertion, or
+     * change it to not apply in that case. */
+    assert(OPA_Queue_is_empty(&schedule->scheduled_queue));
+    assert(OPA_load_int(&schedule->num_tasks) == 0);
+    assert(OPA_load_int(&schedule->all_tasks_done));
 
     /* Free all remaining tasks.  They should all be done or canceled. */
     for(task = schedule->task_list_head.task_list_next;

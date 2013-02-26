@@ -19,12 +19,17 @@ AC_PREFIX_DEFAULT([`pwd`/ae2])
 AC_PROG_CC
 AC_PROG_CPP
 AC_PROG_INSTALL
-AC_PROG_LIBTOOL
-AC_PROG_LN_S
 AC_PROG_MAKE_SET
 
-# Initialize libtool
+# Default to building static library, because opa by default builds itself
+# statically without -fPIC, preventing it from working with a shared library.
+AC_DISABLE_SHARED
+
+# Initialize libtool.
+# Bug in libtool adds -O2 and -g by default
+save_cflags=$CFLAGS
 LT_INIT
+CFLAGS=$save_cflags
 
 # ----------------------------------------------------------------------
 # Check headers

@@ -31,7 +31,7 @@ typedef enum {
     AE2_TASK_SCHEDULED,
     AE2_TASK_RUNNING,
     AE2_TASK_DONE,
-    AE2_TASK_CANCELED           /* Internal */
+    AE2_TASK_CANCELED
 } AE2_status_t;
 
 typedef enum {
