@@ -1,0 +1,339 @@
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * Copyright by The HDF Group.                                               *
+ * Copyright by the Board of Trustees of the University of Illinois.         *
+ * All rights reserved.                                                      *
+ *                                                                           *
+ * This file is part of HDF5.  The full HDF5 copyright notice, including     *
+ * terms governing use, modification, and redistribution, is contained in    *
+ * the files COPYING and Copyright.html.  COPYING can be found at the root   *
+ * of the source code distribution tree; Copyright.html can be found at the  *
+ * root level of an installed copy of the electronic HDF5 document set and   *
+ * is linked from the top-level documents page.  It can also be found at     *
+ * http://hdfgroup.org/HDF5/doc/Copyright.html.  If you do not have          *
+ * access to either file, you may request a copy from help@hdfgroup.org.     *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#include "AE2threadpool.h"
+
+
+/*
+ * Local typedefs
+ */
+struct AE2_thread_pool_t {
+    OPA_Queue_info_t        thread_queue;
+    pthread_mutex_t         thread_queue_mutex;
+    pthread_attr_t          thread_attr;
+    size_t                  num_threads;
+    AE2_thread_t            **threads;
+};
+
+struct AE2_thread_t {
+    OPA_Queue_element_hdr_t thread_queue_hdr;
+    AE2_thread_pool_t       *thread_pool;
+    pthread_cond_t          thread_cond;
+    pthread_mutex_t         thread_mutex;
+    AE2_thread_op_t         thread_op;
+    void                    *thread_op_data;
+    pthread_t               thread_info;
+};
+
+
+/*
+ * Local functions
+ */
+static void *AE2_thread_pool_worker(void *_thread);
+
+
+AE2_error_t
+AE2_thread_pool_create(size_t num_threads,
+    AE2_thread_pool_t **thread_pool/*out*/)
+{
+    AE2_thread_t *thread;
+    _Bool is_thread_mutex_init = FALSE;
+    _Bool is_thread_attr_init = FALSE;
+    AE2_error_t ret_value = AE2_SUCCEED;
+
+    *thread_pool = NULL;
+
+    /* Allocate thread pool */
+    if(NULL == (*thread_pool = (AE2_thread_pool_t *)malloc(sizeof(AE2_thread_pool_t))))
+        ERROR;
+
+    /* Initialize malloc'd fields to NULL, so they are not freed if something
+     * goes wrong */
+    (*thread_pool)->num_threads = 0;
+    (*thread_pool)->threads = NULL;
+
+    /* Initialize thread queue */
+    OPA_Queue_init(&(*thread_pool)->thread_queue);
+
+    /* Initialize queue mutex */
+    if(0 != pthread_mutex_init(&(*thread_pool)->thread_queue_mutex, NULL))
+        ERROR;
+    is_thread_mutex_init = TRUE;
+
+    /* Initialize thread attribute */
+    if(0 != pthread_attr_init(&(*thread_pool)->thread_attr))
+        ERROR;
+    is_thread_attr_init = TRUE;
+
+    /* Set threads to detached */
+    if(0 != pthread_attr_setdetachstate(&(*thread_pool)->thread_attr, PTHREAD_CREATE_JOINABLE))
+        ERROR;
+
+    /* Allocate threads array */
+    if(NULL == ((*thread_pool)->threads = (AE2_thread_t **)malloc(num_threads * sizeof(AE2_thread_t *))))
+        ERROR;
+
+    /* Create threads */
+    for((*thread_pool)->num_threads = 0;
+            (*thread_pool)->num_threads < num_threads;
+            (*thread_pool)->num_threads++) {
+        /* Allocate thread */
+        if(NULL == ((*thread_pool)->threads[(*thread_pool)->num_threads] = (AE2_thread_t *)malloc(sizeof(AE2_thread_t))))
+            ERROR;
+
+        /* Set convenience variable */
+        thread = (*thread_pool)->threads[(*thread_pool)->num_threads];
+
+        /* Initialize thread */
+        thread->thread_pool = *thread_pool;
+        if(0 != pthread_cond_init(&thread->thread_cond, NULL))
+            ERROR;
+        if(0 != pthread_mutex_init(&thread->thread_mutex, NULL))
+            ERROR;
+        thread->thread_op = NULL;
+        thread->thread_op_data = NULL;
+
+        /* Launch thread */
+        if(0 != pthread_create(&thread->thread_info, &(*thread_pool)->thread_attr, AE2_thread_pool_worker, thread))
+            ERROR;
+    } /* end for */
+
+    assert((*thread_pool)->num_threads == num_threads);
+
+done:
+    if(ret_value == AE2_FAIL)
+        if(*thread_pool) {
+            /* Cleanup on error - if we have already launched at least one
+             * thread, use normal free routine */
+            if((*thread_pool)->num_threads > 0)
+                (void)AE2_thread_pool_free(*thread_pool);
+            else {
+                if(is_thread_attr_init)
+                    (void)pthread_attr_destroy(&(*thread_pool)->thread_attr);
+                if(is_thread_mutex_init);
+                    (void)pthread_mutex_destroy(&(*thread_pool)->thread_queue_mutex);
+                if((*thread_pool)->threads)
+                    free((*thread_pool)->threads);
+                free(*thread_pool);
+            } /* end else */
+            *thread_pool = NULL;
+        } /* end if */
+
+    return ret_value;
+} /* end AE2_thread_pool_create() */
+
+
+/* Note for function description: we use try_acquire() followed by launch()
+ * instead of just try_launch() to avoid interfering with the order of scheduled
+ * tasks or having to take multiple mutexes at the same time, which makes it
+ * more difficult to prove that the algorithm cannot deadlock.
+ *
+ * It does not matter if the threads change position in the queue (as
+ * happens if the caller fails to acquire a task), but it is not ideal (with
+ * respect to fairness in scheduling) for tasks to be reordered when the caller
+ * fails to acquire a thread.  Thus we pop a thread first, and push it back if
+ * we
+ * cannot get a task, and not the other way around. */
+AE2_error_t
+AE2_thread_pool_try_acquire(AE2_thread_pool_t *thread_pool,
+    AE2_thread_t **thread/*out*/)
+{
+    AE2_error_t ret_value = AE2_SUCCEED;
+
+    /* Lock the thread queue mutex - only one thread can dequeue at a time with
+     * the current queue implementation */
+    /* Note that the thread queue mutex is always unlocked shortly afterwards
+     * without any intervening locks.  Therefore, it will not cause a deadlock.
+     */
+    if(0 != pthread_mutex_lock(&thread_pool->thread_queue_mutex))
+        ERROR;
+
+    /* Check if the queue is empty */
+    if(OPA_Queue_is_empty(&thread_pool->thread_queue))
+        *thread = NULL;
+    else {
+        /* Dequeue waiting thread */
+        OPA_Queue_dequeue(&thread_pool->thread_queue, *thread, AE2_thread_t, thread_queue_hdr);
+        assert(*thread);
+    } /* end else */
+
+    /* Unlock thread queue mutex */
+    if(0 != pthread_mutex_unlock(&thread_pool->thread_queue_mutex))
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AE2_thread_pool_try_acqure */
+
+
+void
+AE2_thread_pool_release(AE2_thread_t *thread)
+{
+    /* Push thread back onto free thread queue */
+    OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AE2_thread_t, thread_queue_hdr);
+
+    return;
+} /* end AE2_thread_pool_release() */
+
+
+AE2_error_t
+AE2_thread_pool_launch(AE2_thread_t *thread, AE2_thread_op_t thread_op,
+    void *thread_op_data)
+{
+    AE2_error_t ret_value = AE2_SUCCEED;
+
+    assert(thread);
+    assert(thread_op);
+
+    /* Lock thread mutex */
+    if(0 != pthread_mutex_lock(&thread->thread_mutex))
+        ERROR;
+
+    /* Add operator info to thread struct */
+    thread->thread_op = thread_op;
+    thread->thread_op_data = thread_op_data;
+
+    /* Send condition signal to wake up thread */
+    if(0 != pthread_cond_signal(&thread->thread_cond))
+        ERROR;
+
+    /* Unlock the thread mutex to allow the thread to proceed */
+    if(0 != pthread_mutex_unlock(&thread->thread_mutex))
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AE2_thread_pool_try_launch() */
+
+
+AE2_error_t
+AE2_thread_pool_free(AE2_thread_pool_t *thread_pool)
+{
+    AE2_thread_t *thread;
+    size_t i;
+    AE2_error_t ret_value = AE2_SUCCEED;
+
+    /* Shut down all threads */
+    for(i = 0; i < thread_pool->num_threads; i++) {
+        thread = thread_pool->threads[i];
+
+        /* Lock thread mutex */
+        if(0 != pthread_mutex_lock(&thread->thread_mutex))
+            ERROR;
+
+        assert(thread->thread_op == NULL);
+        assert(thread->thread_op_data == NULL);
+
+        /* Send condition signal to wake up thread.  Because thread_op is NULL,
+         * the thread will terminate.  The thread will release its own
+         * resources. */
+        if(0 != pthread_cond_signal(&thread->thread_cond))
+            ERROR;
+
+        /* Unlock the thread mutex to allow the thread to proceed */
+        if(0 != pthread_mutex_unlock(&thread->thread_mutex))
+            ERROR;
+
+        /* Join the thread */
+        if(0 != pthread_join(thread->thread_info, NULL))
+            ERROR;
+
+        /* Destroy thread mutex */
+        if(0 != pthread_mutex_destroy(&thread->thread_mutex))
+            ERROR;
+
+        /* Destroy thread condition variable */
+        if(0 != pthread_cond_destroy(&thread->thread_cond))
+            ERROR;
+
+        /* Free the thread */
+        free(thread);
+    } /* end for */
+
+    /* Destroy queue mutex */
+    if(0 != pthread_mutex_destroy(&thread_pool->thread_queue_mutex))
+        ERROR;
+
+    /* Destroy thread attribute */
+    if(0 != pthread_attr_destroy(&thread_pool->thread_attr))
+        ERROR;
+
+    /* Free threads array */
+    free(thread_pool->threads);
+
+    /* Free schedule */
+    free(thread_pool);
+
+done:
+    return ret_value;
+} /* end AE2_thread_pool_free() */
+
+
+static void *
+AE2_thread_pool_worker(void *_thread)
+{
+    AE2_thread_t *thread = (AE2_thread_t *)_thread;
+    void *ret_value = NULL;
+
+    assert(thread);
+
+    /* Lock the thread mutex - this will only be unlocked by pthread_cond_wait
+     */
+    if(0 != pthread_mutex_lock(&thread->thread_mutex))
+        ERROR_RET(thread);
+
+    /* Push thread onto free thread queue */
+    OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AE2_thread_t, thread_queue_hdr);
+
+    /* Wait until signalled to run */
+    if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
+        ERROR_RET(thread);
+
+    /* Main loop - when thread_op is set to NULL, shut down */
+    while(thread->thread_op) {
+        /* Launch client operator */
+        if(thread->thread_op(thread->thread_op_data) != AE2_SUCCEED)
+            ERROR_RET(thread);
+
+        /* Reset operator */
+        thread->thread_op = NULL;
+        thread->thread_op_data = NULL;
+
+        /* Push thread back onto free thread queue */
+        OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AE2_thread_t, thread_queue_hdr);
+
+        /* Note: The thread must never take any mutexes (except the thread
+         * mutex, which it immediately releases in pthread_cond_wait) while on
+         * the thread queue.  In other words, a wait on the thead mutex for a
+         * dequeued thread is guaranteed to succeed before the dequeued thread
+         * attempts to lock any mutex.  This is to prevent deadlocks. */
+
+        /* Wait until signalled to run again */
+        if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
+            ERROR_RET(thread);
+    } /* end while */
+
+done:
+    /* Release thread mutex */
+    if(0 != pthread_mutex_unlock(&thread->thread_mutex))
+        ret_value = thread;
+
+#ifdef NAF_DEBUG
+    printf("AE2_thread_pool_worker exiting...\n"); fflush(stdout);
+#endif /* NAF_DEBUG */
+
+    pthread_exit(ret_value);
+} /* end AE2_thread_pool_worker() */
+
