@@ -18,15 +18,30 @@
 #include "AE2threadpool.h"
 
 
+/*
+ * Local functions
+ */
+static void AE2_init(void);
+
+
+/*
+ * Local variables
+ */
+pthread_once_t AE2_init_once_g = PTHREAD_ONCE_INIT;
+AE2_error_t AE2_init_status_g = AE2_SUCCEED;
+
+
 AE2_error_t
 AE2_engine_create(size_t num_threads, AE2_engine_int_t **engine/*out*/)
 {
     AE2_error_t ret_value = AE2_SUCCEED;
 
-    /* Initialize OPA shared memory.  Because we are just running threads in one
-     * process, the memory will always be symmetric.  Just set the base address
-     * to 0. */
-    if(OPA_Shm_asymm_init((char *)0) != 0)
+    /* Call initialization routine, but only once */
+    if(0 != pthread_once(&AE2_init_once_g, AE2_init))
+        ERROR;
+
+    /* Check if AE2_init failed */
+    if(AE2_init_status_g != AE2_SUCCEED)
         ERROR;
 
     /* Allocate engine */
@@ -77,4 +92,18 @@ AE2_engine_free(AE2_engine_int_t *engine)
 done:
     return ret_value;
 } /* end AE2terminate_engine() */
+
+
+static void
+AE2_init(void)
+{
+    /* Initialize OPA shared memory.  Because we are just running threads in one
+     * process, the memory will always be symmetric.  Just set the base address
+     * to 0.  No need to worry about atomicity as this thread should only be
+     * called once, and noone else should change AE2_init_status_g */
+    if(OPA_Shm_asymm_init((char *)0) != 0)
+        AE2_init_status_g = AE2_FAIL;
+
+    return;
+} /* end AE2_init() */
 

@@ -23,6 +23,7 @@ struct AE2_thread_pool_t {
     OPA_Queue_info_t        thread_queue;
     pthread_mutex_t         thread_queue_mutex;
     pthread_attr_t          thread_attr;
+    OPA_int_t               closing;
     size_t                  num_threads;
     AE2_thread_t            **threads;
 };
@@ -80,6 +81,9 @@ AE2_thread_pool_create(size_t num_threads,
     /* Set threads to detached */
     if(0 != pthread_attr_setdetachstate(&(*thread_pool)->thread_attr, PTHREAD_CREATE_JOINABLE))
         ERROR;
+
+    /* Initialize closing field */
+    OPA_store_int(&(*thread_pool)->closing, FALSE);
 
     /* Allocate threads array */
     if(NULL == ((*thread_pool)->threads = (AE2_thread_t **)malloc(num_threads * sizeof(AE2_thread_t *))))
@@ -225,6 +229,11 @@ AE2_thread_pool_free(AE2_thread_pool_t *thread_pool)
     size_t i;
     AE2_error_t ret_value = AE2_SUCCEED;
 
+    /* Mark thread pool as closing, to prevent rare race condition */
+    OPA_store_int(&thread_pool->closing, TRUE);
+
+    /* Note no memory barrier is necessary here because of the mutexes */
+
     /* Shut down all threads */
     for(i = 0; i < thread_pool->num_threads; i++) {
         thread = thread_pool->threads[i];
@@ -297,9 +306,16 @@ AE2_thread_pool_worker(void *_thread)
     /* Push thread onto free thread queue */
     OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AE2_thread_t, thread_queue_hdr);
 
-    /* Wait until signalled to run */
-    if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
-        ERROR_RET(thread);
+    /* Check if the thread pool is shutting down (to prevent the race condition
+     * where the thread pool already sent the signal to shut down before this
+     * thread locked its mutex) */
+    if(!OPA_load_int(&thread->thread_pool->closing)) {
+        /* Wait until signaled to run */
+        if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
+            ERROR_RET(thread);
+    } /* end if */
+    else
+        assert(!thread->thread_op);
 
     /* Main loop - when thread_op is set to NULL, shut down */
     while(thread->thread_op) {
