@@ -381,7 +381,7 @@ test_sufficient(size_t num_threads)
 
 
     /*
-     * Test 3: One parent, two children
+     * Test 2: One parent, two children
      */
     /* Initialize shared task data struct */
     shared_task_data.max_ncalls = 3;
@@ -438,7 +438,7 @@ test_sufficient(size_t num_threads)
 
 
     /*
-     * Test 4: Two parents, one child
+     * Test 3: Two parents, one child
      */
     /* Initialize shared task data struct */
     shared_task_data.max_ncalls = 3;
@@ -466,6 +466,10 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
+    if(AE2wait(task1) < 0)
+        TEST_ERROR;
+    if(AE2wait(task2) < 0)
+        TEST_ERROR;
     if(AE2wait(task3) < 0)
         TEST_ERROR;
 
@@ -510,10 +514,9 @@ error:
 int
 main(int argc, char **argv)
 {
-    int i, j;
+    int i;
     int nerrors = 0;
 
-    for(j = 0; j < 10; j++)
     /* Loop over number of threads */
     for(i = 0; i < (sizeof(num_threads_g) / sizeof(num_threads_g[0])); i++) {
         printf("----Testing with %d threads----\n", (int)num_threads_g[i]);

@@ -258,6 +258,13 @@ AE2_thread_pool_free(AE2_thread_pool_t *thread_pool)
         /* Join the thread */
         if(0 != pthread_join(thread->thread_info, NULL))
             ERROR;
+    } /* end for */
+
+    /* Destroy all threads.  Once we get here we know the queue will no longer
+     * be accessed, so it is safe to free the threads even if they are still in
+     * the queue (no need to empty the queue). */
+    for(i = 0; i < thread_pool->num_threads; i++) {
+        thread = thread_pool->threads[i];
 
         /* Destroy thread mutex */
         if(0 != pthread_mutex_destroy(&thread->thread_mutex))
@@ -266,6 +273,10 @@ AE2_thread_pool_free(AE2_thread_pool_t *thread_pool)
         /* Destroy thread condition variable */
         if(0 != pthread_cond_destroy(&thread->thread_cond))
             ERROR;
+
+#ifdef NAF_DEBUG
+        printf("AE2_thread_pool_free: free thread %p\n", thread); fflush(stdout);
+#endif /* NAF_DEBUG */
 
         /* Free the thread */
         free(thread);
