@@ -139,9 +139,9 @@ AXE_schedule_add(AXE_task_int_t *task)
 
     /* Increment the reference count on the task due to it being placed in the
      * scheduler */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
     printf("AXE_schedule_add: incr ref: %p", task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
     AXE_task_incr_ref(task);
 
     /* Note that a write barrier is only not necessary here because other
@@ -154,9 +154,9 @@ AXE_schedule_add(AXE_task_int_t *task)
         parent_task = task->necessary_parents[i];
 
         /* Increment reference count on parent task */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
         printf("AXE_schedule_add: incr ref: %p nec_par", parent_task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
         AXE_task_incr_ref(parent_task);
 
         /* Lock parent task mutex.  Note that this thread does not hold any
@@ -176,9 +176,9 @@ AXE_schedule_add(AXE_task_int_t *task)
             /* Increment reference count on child task, so child does not get freed
              * before necessary parent finishes.  This could only happen if the
              * child gets cancelled/removed. */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
             printf("AXE_schedule_add: incr ref: %p from nec_par", task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
             AXE_task_incr_ref(task);
 
             /* Add this task to parent's child task list */
@@ -219,9 +219,9 @@ AXE_schedule_add(AXE_task_int_t *task)
         parent_task = task->sufficient_parents[i];
 
         /* Increment reference count on parent task */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
         printf("AXE_schedule_add: incr ref: %p suf_par", parent_task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
         AXE_task_incr_ref(parent_task);
 
         /* Lock parent task mutex.  Note that this thread does not hold any
@@ -242,9 +242,9 @@ AXE_schedule_add(AXE_task_int_t *task)
         else {
             /* Increment reference count on child task, so child does not get freed
              * before sufficient parent finishes */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
             printf("AXE_schedule_add: incr ref: %p from suf_par", task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
             AXE_task_incr_ref(task);
 
             /* Add this task to parent's child task list */
@@ -282,9 +282,9 @@ AXE_schedule_add(AXE_task_int_t *task)
 
     assert((size_t)OPA_load_int(&task->num_conditions_complete) <= task->num_necessary_parents + 1);
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
     printf("AXE_schedule_add: added %p\n", task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
     /* Add task to task list */
     /* Lock task list mutex */
@@ -328,9 +328,9 @@ AXE_schedule_add(AXE_task_int_t *task)
          * AXE_schedule_finish()). */
         OPA_write_barrier();
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
         printf("AXE_schedule_add: enqueue %p\n", task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
         /* Add task to scheduled queue */
         OPA_Queue_enqueue(&schedule->scheduled_queue, task, AXE_task_int_t, scheduled_queue_hdr);
@@ -397,9 +397,9 @@ AXE_schedule_add(AXE_task_int_t *task)
                 /* Retrieve task from scheduled queue */
                 OPA_Queue_dequeue(&schedule->scheduled_queue, exec_task, AXE_task_int_t, scheduled_queue_hdr);
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
 printf("AXE_schedule_add: dequeue %p\n", exec_task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
                 /* Unlock scheduled queue mutex */
                 if(0 != pthread_mutex_unlock(&schedule->scheduled_queue_mutex))
@@ -462,18 +462,18 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
              * the task is scheduled */
             OPA_write_barrier();
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
             printf("AXE_schedule_finish: enqueue %p nec\n", child_task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
             /* Add task to scheduled queue */
             OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AXE_task_int_t, scheduled_queue_hdr);
         } /* end if */
 
         /* Decrement ref count on child */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p nec", child_task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
         AXE_task_decr_ref(child_task);
     } /* end for */
 
@@ -504,18 +504,18 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
                  * task is scheduled */
                 OPA_write_barrier();
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
                 printf("AXE_schedule_finish: enqueue %p suf\n", child_task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
                 /* Add task to scheduled queue */
                 OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AXE_task_int_t, scheduled_queue_hdr);
             } /* end if */
 
         /* Decrement ref count on child */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p suf", child_task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
         AXE_task_decr_ref(child_task);
     } /* end for */
 
@@ -534,9 +534,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
     if(0 != pthread_mutex_lock(&(*task)->wait_mutex))
         ERROR;
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
     printf("AXE_schedule_finish: %p->status = AXE_TASK_DONE\n", *task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
     OPA_store_int(&(*task)->status, (int)AXE_TASK_DONE);
 
@@ -579,9 +579,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 
     /* Decrement ref count - this task is complete and no longer part of the
      * schedule */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
     printf("AXE_schedule_finish: decr ref: %p", *task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
     AXE_task_decr_ref(*task);
 
     /* Now try to launch all scheduled tasks, until we run out of tasks or run
@@ -616,9 +616,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
             /* Retrieve task from scheduled queue */
             OPA_Queue_dequeue(&schedule->scheduled_queue, *task, AXE_task_int_t, scheduled_queue_hdr);
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
             printf("AXE_schedule_finish: dequeue %p\n", *task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
             /* Unlock scheduled queue mutex */
             if(0 != pthread_mutex_unlock(&schedule->scheduled_queue_mutex))

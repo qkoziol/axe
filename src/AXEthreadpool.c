@@ -274,9 +274,9 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
         if(0 != pthread_cond_destroy(&thread->thread_cond))
             ERROR;
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
         printf("AXE_thread_pool_free: free thread %p\n", thread); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
         /* Free the thread */
         free(thread);
@@ -357,9 +357,9 @@ done:
     if(0 != pthread_mutex_unlock(&thread->thread_mutex))
         ret_value = thread;
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
     printf("AXE_thread_pool_worker exiting...\n"); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
     pthread_exit(ret_value);
 } /* end AXE_thread_pool_worker() */

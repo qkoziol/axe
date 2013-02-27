@@ -21,11 +21,11 @@
 void
 AXE_task_incr_ref(AXE_task_int_t *task)
 {
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
     printf(" %d\n", OPA_fetch_and_incr_int(&task->rc) + 1); fflush(stdout);
-#else /* NAF_DEBUG_REF */
+#else /* AXE_DEBUG_REF */
     OPA_incr_int(&task->rc);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
 
     return;
 } /* end AXE_task_incr_ref() */
@@ -34,14 +34,14 @@ AXE_task_incr_ref(AXE_task_int_t *task)
 void
 AXE_task_decr_ref(AXE_task_int_t *task)
 {
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
     int rc = OPA_fetch_and_decr_int(&task->rc) - 1;
 
     printf(" %d\n", rc); fflush(stdout);
     if(rc == 0) {
-#else /* NAF_DEBUG_REF */
+#else /* AXE_DEBUG_REF */
     if(OPA_decr_and_test_int(&task->rc)) {
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
         /* The scheduler should always hold a reference until the task is done
          * (until we implement remove, etc.) */
         assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE);
@@ -218,9 +218,9 @@ AXE_task_worker(void *_task)
                     block++;
                 else {
                     /* Decrement reference count on uncomplete parent */
-    #ifdef NAF_DEBUG_REF
+    #ifdef AXE_DEBUG_REF
                     printf("AXE_task_worker: decr ref: %p", task->sufficient_parents[i]);
-    #endif /* NAF_DEBUG_REF */
+    #endif /* AXE_DEBUG_REF */
                     AXE_task_decr_ref(task->sufficient_parents[i]);
 
                     if(block) {
@@ -315,10 +315,11 @@ AXE_task_free(AXE_task_int_t *task)
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
+    assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED));
 
-#ifdef NAF_DEBUG
+#ifdef AXE_DEBUG
     printf("AXE_task_free: %p\n", task); fflush(stdout);
-#endif /* NAF_DEBUG */
+#endif /* AXE_DEBUG */
 
     /* Remove from task list, if in list (might not be in list because the
      * schedule is being freed) */

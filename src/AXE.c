@@ -95,9 +95,9 @@ AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     if(task)
         *task = int_task;
     else {
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
         printf("AXEcreate_task: decr ref: %p", int_task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
         AXE_task_decr_ref(int_task);
     } /* end else */
 
@@ -185,12 +185,41 @@ AXEfinish(AXE_task_t task)
 
     /* Decrement reference count on task, it will be freed if it drops to zero
      */
-#ifdef NAF_DEBUG_REF
+#ifdef AXE_DEBUG_REF
     printf("AXEfinish: decr ref: %p", task);
-#endif /* NAF_DEBUG_REF */
+#endif /* AXE_DEBUG_REF */
     AXE_task_decr_ref(task);
 
 done:
     return ret_value;
 } /* end AXEfinish() */
+
+
+AXE_error_t
+AXEfinish_all(size_t num_tasks, AXE_task_t task[])
+{
+    size_t i;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!task)
+        ERROR;
+
+    /* Iterate over all tasks */
+    for(i = 0; i < num_tasks; i++) {
+        /* Check that task exists */
+        if(!task[i])
+            ERROR;
+
+        /* Decrement reference count on task, it will be freed if it drops to zero
+         */
+#ifdef AXE_DEBUG_REF
+    printf("AXEfinish_all: decr ref: %p", task);
+#endif /* AXE_DEBUG_REF */
+        AXE_task_decr_ref(task[i]);
+    } /* end for */
+
+done:
+    return ret_value;
+} /* end AXEfinish_all() */
 

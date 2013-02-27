@@ -91,7 +91,7 @@ AXE_engine_free(AXE_engine_int_t *engine)
 
 done:
     return ret_value;
-} /* end AXEterminate_engine() */
+} /* end AXE_engine_free() */
 
 
 static void

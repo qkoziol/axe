@@ -68,8 +68,8 @@ do { \
 #endif
 
 /* Debugging */
-//#define NAF_DEBUG
-//#define NAF_DEBUG_REF
+//#define AXE_DEBUG
+//#define AXE_DEBUG_REF
 
 
 #endif /* AXE_PRIVATE_H_INCLUDED */
