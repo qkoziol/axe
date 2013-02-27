@@ -2,18 +2,18 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([ae2], [0.1a], [nfortne2@hdfgroup.org])
+AC_INIT([axe], [0.1a], [nfortne2@hdfgroup.org])
 AC_CONFIG_AUX_DIR([config])
 AC_CONFIG_MACRO_DIR([m4])
-AC_CONFIG_SRCDIR([src/AE2.c])
+AC_CONFIG_SRCDIR([src/AXE.c])
 AC_CONFIG_HEADER([src/config.h])
 
 # Init automake
 AM_INIT_AUTOMAKE
 AM_SILENT_RULES
 
-# Set the prefix to a ae2 directory in the source root.
-AC_PREFIX_DEFAULT([`pwd`/ae2])
+# Set the prefix to an axe directory in the source root.
+AC_PREFIX_DEFAULT([`pwd`/axe])
 
 # Checks for programs.
 AC_PROG_CC
@@ -63,7 +63,7 @@ case "$withval" in
     fi
     ;;
   no)
-    AC_MSG_ERROR([opa library required to build AE2])
+    AC_MSG_ERROR([opa library required to build AXE])
     ;;
   *)
     HAVE_OPA="yes"

@@ -1,9 +1,9 @@
 
 Copyright Notice and License Terms for 
-AE2 
+AXE 
 -----------------------------------------------------------------------------
 
-AE2 
+AXE 
 Copyright 2013 The HDF Group
 
 

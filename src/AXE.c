@@ -13,16 +13,16 @@
  * access to either file, you may request a copy from help@hdfgroup.org.     *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#include "AE2engine.h"
-#include "AE2schedule.h"
-#include "AE2task.h"
+#include "AXEengine.h"
+#include "AXEschedule.h"
+#include "AXEtask.h"
 
 
-AE2_error_t
-AE2create_engine(size_t num_threads, AE2_engine_t *engine/*out*/)
+AXE_error_t
+AXEcreate_engine(size_t num_threads, AXE_engine_t *engine/*out*/)
 {
-    AE2_engine_int_t *int_engine = NULL;
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_engine_int_t *int_engine = NULL;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(num_threads == 0)
@@ -30,22 +30,22 @@ AE2create_engine(size_t num_threads, AE2_engine_t *engine/*out*/)
     if(!engine)
         ERROR;
 
-    if(AE2_engine_create(num_threads, &int_engine) != AE2_SUCCEED)
+    if(AXE_engine_create(num_threads, &int_engine) != AXE_SUCCEED)
         ERROR;
 
     *engine = int_engine;
 
 done:
     return ret_value;
-} /* end AE2create_engine() */
+} /* end AXEcreate_engine() */
 
 
 /* Note: what happens if the user still has handles open for tasks in this
  * engine? */
-AE2_error_t
-AE2terminate_engine(AE2_engine_t engine, _Bool wait_all)
+AXE_error_t
+AXEterminate_engine(AXE_engine_t engine, _Bool wait_all)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(!engine)
@@ -53,26 +53,26 @@ AE2terminate_engine(AE2_engine_t engine, _Bool wait_all)
 
     /* Wait for all tasks to complete, if requested */
     if(wait_all)
-        if(AE2_schedule_wait_all(((AE2_engine_int_t *)engine)->schedule) != AE2_SUCCEED)
+        if(AXE_schedule_wait_all(((AXE_engine_int_t *)engine)->schedule) != AXE_SUCCEED)
             ERROR;
 
     /* Now that all tasks are complete (or cancelled), we can free the engine */
-    if(AE2_engine_free(engine) != AE2_SUCCEED)
+    if(AXE_engine_free(engine) != AXE_SUCCEED)
         ERROR;
 
 done:
     return ret_value;
-} /* end AE2terminate_engine() */
+} /* end AXEterminate_engine() */
 
 
-AE2_error_t
-AE2create_task(AE2_engine_t engine, AE2_task_t *task/*out*/,
-    size_t num_necessary_parents, AE2_task_t necessary_parents[],
-    size_t num_sufficient_parents, AE2_task_t sufficient_parents[],
-    AE2_task_op_t op, void *op_data, AE2_task_free_op_data_t free_op_data)
+AXE_error_t
+AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+    size_t num_necessary_parents, AXE_task_t necessary_parents[],
+    size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
+    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
-    AE2_task_int_t *int_task = NULL;
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_task_int_t *int_task = NULL;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(!engine)
@@ -83,9 +83,9 @@ AE2create_task(AE2_engine_t engine, AE2_task_t *task/*out*/,
         ERROR;
 
     /* Create task */
-    if(AE2_task_create(engine, &int_task, num_necessary_parents,
+    if(AXE_task_create(engine, &int_task, num_necessary_parents,
             necessary_parents, num_sufficient_parents, sufficient_parents, op,
-            op_data, free_op_data) != AE2_SUCCEED)
+            op_data, free_op_data) != AXE_SUCCEED)
         ERROR;
     assert(int_task);
 
@@ -96,24 +96,24 @@ AE2create_task(AE2_engine_t engine, AE2_task_t *task/*out*/,
         *task = int_task;
     else {
 #ifdef NAF_DEBUG_REF
-        printf("AE2create_task: decr ref: %p", int_task);
+        printf("AXEcreate_task: decr ref: %p", int_task);
 #endif /* NAF_DEBUG_REF */
-        AE2_task_decr_ref(int_task);
+        AXE_task_decr_ref(int_task);
     } /* end else */
 
 done:
     return ret_value;
-} /* end AE2create_task() */
+} /* end AXEcreate_task() */
 
 
-/* Note for AE2remove/remove_all: Does the app still need to call AE2finish() or
+/* Note for AXEremove/remove_all: Does the app still need to call AXEfinish() or
  * do these functions free the task(s)? */
 
 
-AE2_error_t
-AE2get_op_data(AE2_task_t task, void **op_data/*out*/)
+AXE_error_t
+AXEget_op_data(AXE_task_t task, void **op_data/*out*/)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(!task)
@@ -122,17 +122,17 @@ AE2get_op_data(AE2_task_t task, void **op_data/*out*/)
         ERROR;
 
     /* Get op data */
-    AE2_task_get_op_data(task, op_data);
+    AXE_task_get_op_data(task, op_data);
 
 done:
     return ret_value;
-} /* end AE2get_op_data() */
+} /* end AXEget_op_data() */
 
 
-AE2_error_t
-AE2get_status(AE2_task_t task, AE2_status_t *status/*out*/)
+AXE_error_t
+AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(!task)
@@ -146,38 +146,38 @@ AE2get_status(AE2_task_t task, AE2_status_t *status/*out*/)
     OPA_read_write_barrier();
 
     /* Get op data */
-    AE2_task_get_status(task, status);
+    AXE_task_get_status(task, status);
 
     /* Read/write barrier, see above */
     OPA_read_write_barrier();
 
 done:
     return ret_value;
-} /* end AE2get_status() */
+} /* end AXEget_status() */
 
 
-AE2_error_t
-AE2wait(AE2_task_t task)
+AXE_error_t
+AXEwait(AXE_task_t task)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(!task)
         ERROR;
 
     /* Wait for task to complete */
-    if(AE2_task_wait(task) != AE2_SUCCEED)
+    if(AXE_task_wait(task) != AXE_SUCCEED)
         ERROR;
 
 done:
     return ret_value;
-} /* end AE2wait() */
+} /* end AXEwait() */
 
 
-AE2_error_t
-AE2finish(AE2_task_t task)
+AXE_error_t
+AXEfinish(AXE_task_t task)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(!task)
@@ -186,11 +186,11 @@ AE2finish(AE2_task_t task)
     /* Decrement reference count on task, it will be freed if it drops to zero
      */
 #ifdef NAF_DEBUG_REF
-    printf("AE2finish: decr ref: %p", task);
+    printf("AXEfinish: decr ref: %p", task);
 #endif /* NAF_DEBUG_REF */
-    AE2_task_decr_ref(task);
+    AXE_task_decr_ref(task);
 
 done:
     return ret_value;
-} /* end AE2finish() */
+} /* end AXEfinish() */
 

@@ -13,34 +13,34 @@
  * access to either file, you may request a copy from help@hdfgroup.org.     *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#ifndef AE2_THREADPOOL_H_INCLUDED
-#define AE2_THREADPOOL_H_INCLUDED
+#ifndef AXE_THREADPOOL_H_INCLUDED
+#define AXE_THREADPOOL_H_INCLUDED
 
-#include "AE2private.h"
+#include "AXEprivate.h"
 
 
 /*
  * Typedefs
  */
-typedef struct AE2_thread_pool_t AE2_thread_pool_t;
+typedef struct AXE_thread_pool_t AXE_thread_pool_t;
 
-typedef struct AE2_thread_t AE2_thread_t;
+typedef struct AXE_thread_t AXE_thread_t;
 
-typedef AE2_error_t (*AE2_thread_op_t)(void *op_data);
+typedef AXE_error_t (*AXE_thread_op_t)(void *op_data);
 
 
 /*
  * Functions
  */
-AE2_error_t AE2_thread_pool_create(size_t num_threads,
-    AE2_thread_pool_t **thread_pool/*out*/);
-AE2_error_t AE2_thread_pool_try_acquire(AE2_thread_pool_t *thread_pool,
-    AE2_thread_t **thread/*out*/);
-void AE2_thread_pool_release(AE2_thread_t *thread);
-AE2_error_t AE2_thread_pool_launch(AE2_thread_t *thread,
-    AE2_thread_op_t thread_op, void *thread_op_data);
-AE2_error_t AE2_thread_pool_free(AE2_thread_pool_t *thread_pool);
+AXE_error_t AXE_thread_pool_create(size_t num_threads,
+    AXE_thread_pool_t **thread_pool/*out*/);
+AXE_error_t AXE_thread_pool_try_acquire(AXE_thread_pool_t *thread_pool,
+    AXE_thread_t **thread/*out*/);
+void AXE_thread_pool_release(AXE_thread_t *thread);
+AXE_error_t AXE_thread_pool_launch(AXE_thread_t *thread,
+    AXE_thread_op_t thread_op, void *thread_op_data);
+AXE_error_t AXE_thread_pool_free(AXE_thread_pool_t *thread_pool);
 
 
-#endif /* AE2_THREADPOOL_H_INCLUDED */
+#endif /* AXE_THREADPOOL_H_INCLUDED */
 

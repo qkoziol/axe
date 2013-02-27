@@ -3,10 +3,10 @@ TESTS = test_all
 check_PROGRAMS = $(TESTS)
 
 AM_LDFLAGS = -L../src
-LDADD = -lae2
-DEPENDENCIES = libae2.la
+LDADD = -laxe
+DEPENDENCIES = libaxe.la
 
-test_all_SOURCES = test_all.c ae2_test.h
+test_all_SOURCES = test_all.c axe_test.h
 
 AM_CPPFLAGS = -I$(top_srcdir)/src
 

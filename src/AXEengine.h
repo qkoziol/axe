@@ -13,30 +13,30 @@
  * access to either file, you may request a copy from help@hdfgroup.org.     *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#ifndef AE2_ENGINE_H_INCLUDED
-#define AE2_ENGINE_H_INCLUDED
+#ifndef AXE_ENGINE_H_INCLUDED
+#define AXE_ENGINE_H_INCLUDED
 
-#include "AE2private.h"
-#include "AE2schedule.h"
-#include "AE2threadpool.h"
+#include "AXEprivate.h"
+#include "AXEschedule.h"
+#include "AXEthreadpool.h"
 
 
 /*
  * Typedefs
  */
-struct AE2_engine_int_t {
-    AE2_schedule_t          *schedule;
-    AE2_thread_pool_t       *thread_pool;
+struct AXE_engine_int_t {
+    AXE_schedule_t          *schedule;
+    AXE_thread_pool_t       *thread_pool;
 };
 
 
 /*
  * Functions
  */
-AE2_error_t AE2_engine_create(size_t num_threads,
-    AE2_engine_int_t **engine/*out*/);
-AE2_error_t AE2_engine_free(AE2_engine_int_t *engine);
+AXE_error_t AXE_engine_create(size_t num_threads,
+    AXE_engine_int_t **engine/*out*/);
+AXE_error_t AXE_engine_free(AXE_engine_int_t *engine);
 
 
-#endif /* AE2_ENGINE_H_INCLUDED */
+#endif /* AXE_ENGINE_H_INCLUDED */
 

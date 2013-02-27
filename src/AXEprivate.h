@@ -13,8 +13,8 @@
  * access to either file, you may request a copy from help@hdfgroup.org.     *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#ifndef AE2_PRIVATE_H_INCLUDED
-#define AE2_PRIVATE_H_INCLUDED
+#ifndef AXE_PRIVATE_H_INCLUDED
+#define AXE_PRIVATE_H_INCLUDED
 
 #include "config.h"
 
@@ -34,7 +34,7 @@
 #include <opa_primitives.h>
 #include <opa_queue.h>
 
-#include "AE2.h"
+#include "AXE.h"
 
 
 /*
@@ -43,7 +43,7 @@
 #define ERROR \
 do { \
     fprintf(stderr, "FAILED in " __FILE__ " at line %d\n", __LINE__); \
-    ret_value = AE2_FAIL; \
+    ret_value = AXE_FAIL; \
     goto done; \
 } while(0)
 
@@ -60,9 +60,9 @@ do { \
 /* Define the macro to use for yielding the current thread (to others) */
 #if defined(HAVE_SCHED_YIELD)
 #  include <sched.h>
-#  define AE2_YIELD() (void)sched_yield()
+#  define AXE_YIELD() (void)sched_yield()
 #elif defined(HAVE_PTHREAD_YIELD)
-#  define AE2_YIELD() pthread_yield()
+#  define AXE_YIELD() pthread_yield()
 #else
 #  define OPA_TEST_YIELD() (void)0
 #endif
@@ -72,5 +72,5 @@ do { \
 //#define NAF_DEBUG_REF
 
 
-#endif /* AE2_PRIVATE_H_INCLUDED */
+#endif /* AXE_PRIVATE_H_INCLUDED */
 

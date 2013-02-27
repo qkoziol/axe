@@ -95,17 +95,17 @@ am__uninstall_files_from_dir = { \
   }
 am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(includedir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libae2_la_LIBADD =
-am_libae2_la_OBJECTS = AE2.lo AE2engine.lo AE2schedule.lo AE2task.lo \
-	AE2threadpool.lo
-libae2_la_OBJECTS = $(am_libae2_la_OBJECTS)
+libaxe_la_LIBADD =
+am_libaxe_la_OBJECTS = AXE.lo AXEengine.lo AXEschedule.lo AXEtask.lo \
+	AXEthreadpool.lo
+libaxe_la_OBJECTS = $(am_libaxe_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
-libae2_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
+libaxe_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
-	$(libae2_la_LDFLAGS) $(LDFLAGS) -o $@
+	$(libaxe_la_LDFLAGS) $(LDFLAGS) -o $@
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -140,8 +140,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(libae2_la_SOURCES)
-DIST_SOURCES = $(libae2_la_SOURCES)
+SOURCES = $(libaxe_la_SOURCES)
+DIST_SOURCES = $(libaxe_la_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -268,23 +268,23 @@ top_srcdir = @top_srcdir@
 AM_CFLAGS = -Wall -g -fno-strict-aliasing
 
 # Set the soversion number for the shared library
-libae2_la_LDFLAGS = -version-info 1:0:0
+libaxe_la_LDFLAGS = -version-info 1:0:0
 include_HEADERS = \
-	AE2.h
+	AXE.h
 
-lib_LTLIBRARIES = libae2.la
-libae2_la_SOURCES = \
-	AE2.h \
-	AE2.c \
-	AE2engine.h \
-	AE2engine.c \
-	AE2private.h \
-	AE2schedule.h \
-	AE2schedule.c \
-	AE2task.h \
-	AE2task.c \
-	AE2threadpool.h \
-	AE2threadpool.c
+lib_LTLIBRARIES = libaxe.la
+libaxe_la_SOURCES = \
+	AXE.h \
+	AXE.c \
+	AXEengine.h \
+	AXEengine.c \
+	AXEprivate.h \
+	AXEschedule.h \
+	AXEschedule.c \
+	AXEtask.h \
+	AXEtask.c \
+	AXEthreadpool.h \
+	AXEthreadpool.c
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -370,8 +370,8 @@ clean-libLTLIBRARIES:
 	  echo rm -f $${locs}; \
 	  rm -f $${locs}; \
 	}
-libae2.la: $(libae2_la_OBJECTS) $(libae2_la_DEPENDENCIES) $(EXTRA_libae2_la_DEPENDENCIES) 
-	$(AM_V_CCLD)$(libae2_la_LINK) -rpath $(libdir) $(libae2_la_OBJECTS) $(libae2_la_LIBADD) $(LIBS)
+libaxe.la: $(libaxe_la_OBJECTS) $(libaxe_la_DEPENDENCIES) $(EXTRA_libaxe_la_DEPENDENCIES) 
+	$(AM_V_CCLD)$(libaxe_la_LINK) -rpath $(libdir) $(libaxe_la_OBJECTS) $(libaxe_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -379,11 +379,11 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AE2.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AE2engine.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AE2schedule.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AE2task.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AE2threadpool.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXE.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEengine.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEschedule.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEtask.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEthreadpool.Plo@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<

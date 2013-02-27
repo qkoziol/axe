@@ -237,9 +237,9 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AM_LDFLAGS = -L../src
-LDADD = -lae2
-DEPENDENCIES = libae2.la
-test_all_SOURCES = test_all.c ae2_test.h
+LDADD = -laxe
+DEPENDENCIES = libaxe.la
+test_all_SOURCES = test_all.c axe_test.h
 AM_CPPFLAGS = -I$(top_srcdir)/src
 all: all-am
 

@@ -14,7 +14,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-#include <AE2private.h>
+#include <AXEprivate.h>
 
 
 /*

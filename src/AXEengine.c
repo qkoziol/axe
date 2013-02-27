@@ -13,43 +13,43 @@
  * access to either file, you may request a copy from help@hdfgroup.org.     *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#include "AE2engine.h"
-#include "AE2schedule.h"
-#include "AE2threadpool.h"
+#include "AXEengine.h"
+#include "AXEschedule.h"
+#include "AXEthreadpool.h"
 
 
 /*
  * Local functions
  */
-static void AE2_init(void);
+static void AXE_init(void);
 
 
 /*
  * Local variables
  */
-pthread_once_t AE2_init_once_g = PTHREAD_ONCE_INIT;
-AE2_error_t AE2_init_status_g = AE2_SUCCEED;
+pthread_once_t AXE_init_once_g = PTHREAD_ONCE_INIT;
+AXE_error_t AXE_init_status_g = AXE_SUCCEED;
 
 
-AE2_error_t
-AE2_engine_create(size_t num_threads, AE2_engine_int_t **engine/*out*/)
+AXE_error_t
+AXE_engine_create(size_t num_threads, AXE_engine_int_t **engine/*out*/)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Call initialization routine, but only once */
-    if(0 != pthread_once(&AE2_init_once_g, AE2_init))
+    if(0 != pthread_once(&AXE_init_once_g, AXE_init))
         ERROR;
 
-    /* Check if AE2_init failed */
-    if(AE2_init_status_g != AE2_SUCCEED)
+    /* Check if AXE_init failed */
+    if(AXE_init_status_g != AXE_SUCCEED)
         ERROR;
 
     /* Allocate engine */
-    if(NULL == (*engine = (AE2_engine_int_t *)malloc(sizeof(AE2_engine_int_t))))
+    if(NULL == (*engine = (AXE_engine_int_t *)malloc(sizeof(AXE_engine_int_t))))
         ERROR;
 
     /* Create schedule */
-    if(AE2_schedule_create(num_threads, &(*engine)->schedule) != AE2_SUCCEED) {
+    if(AXE_schedule_create(num_threads, &(*engine)->schedule) != AXE_SUCCEED) {
         free(*engine);
         *engine = NULL;
         ERROR;
@@ -57,8 +57,8 @@ AE2_engine_create(size_t num_threads, AE2_engine_int_t **engine/*out*/)
     assert((*engine)->schedule);
 
     /* Create thread pool */
-    if(AE2_thread_pool_create(num_threads, &(*engine)->thread_pool) != AE2_SUCCEED) {
-        (void)AE2_schedule_free((*engine)->schedule);
+    if(AXE_thread_pool_create(num_threads, &(*engine)->thread_pool) != AXE_SUCCEED) {
+        (void)AXE_schedule_free((*engine)->schedule);
         free(*engine);
         *engine = NULL;
         ERROR;
@@ -67,23 +67,23 @@ AE2_engine_create(size_t num_threads, AE2_engine_int_t **engine/*out*/)
 
 done:
     return ret_value;
-} /* end AE2_engine_create() */
+} /* end AXE_engine_create() */
 
 
-AE2_error_t
-AE2_engine_free(AE2_engine_int_t *engine)
+AXE_error_t
+AXE_engine_free(AXE_engine_int_t *engine)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Mark all tasks as canceled */
-    AE2_schedule_cancel_all(engine->schedule);
+    AXE_schedule_cancel_all(engine->schedule);
 
     /* Free thread pool (will wait for all threads to finish) */
-    if(AE2_thread_pool_free(engine->thread_pool) != AE2_SUCCEED)
+    if(AXE_thread_pool_free(engine->thread_pool) != AXE_SUCCEED)
         ERROR;
 
     /* Free schedule */
-    if(AE2_schedule_free(engine->schedule) != AE2_SUCCEED)
+    if(AXE_schedule_free(engine->schedule) != AXE_SUCCEED)
         ERROR;
 
     /* Free engine */
@@ -91,19 +91,19 @@ AE2_engine_free(AE2_engine_int_t *engine)
 
 done:
     return ret_value;
-} /* end AE2terminate_engine() */
+} /* end AXEterminate_engine() */
 
 
 static void
-AE2_init(void)
+AXE_init(void)
 {
     /* Initialize OPA shared memory.  Because we are just running threads in one
      * process, the memory will always be symmetric.  Just set the base address
      * to 0.  No need to worry about atomicity as this thread should only be
-     * called once, and noone else should change AE2_init_status_g */
+     * called once, and noone else should change AXE_init_status_g */
     if(OPA_Shm_asymm_init((char *)0) != 0)
-        AE2_init_status_g = AE2_FAIL;
+        AXE_init_status_g = AXE_FAIL;
 
     return;
-} /* end AE2_init() */
+} /* end AXE_init() */
 

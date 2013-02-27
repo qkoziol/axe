@@ -14,7 +14,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-#include "ae2_test.h"
+#include "axe_test.h"
 
 
 /*
@@ -41,8 +41,8 @@ size_t num_threads_g[] = {1, 2, 3, 5, 10};
 
 
 void
-basic_task_worker(size_t num_necessary_parents, AE2_task_t necessary_parents[],
-    size_t num_sufficient_parents, AE2_task_t sufficient_parents[],
+basic_task_worker(size_t num_necessary_parents, AXE_task_t necessary_parents[],
+    size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
     void *_task_data)
 {
     basic_task_t *task_data = (basic_task_t *)_task_data;
@@ -62,10 +62,10 @@ basic_task_worker(size_t num_necessary_parents, AE2_task_t necessary_parents[],
 
     /* Decrement ref counts on parent arrays, as required */
     for(i = 0; i < num_necessary_parents; i++)
-        if(AE2finish(necessary_parents[i]) != AE2_SUCCEED)
+        if(AXEfinish(necessary_parents[i]) != AXE_SUCCEED)
             task_data->failed = 1;
     for(i = 0; i < num_sufficient_parents; i++)
-        if(AE2finish(sufficient_parents[i]) != AE2_SUCCEED)
+        if(AXEfinish(sufficient_parents[i]) != AXE_SUCCEED)
             task_data->failed = 1;
 
     return;
@@ -75,9 +75,9 @@ basic_task_worker(size_t num_necessary_parents, AE2_task_t necessary_parents[],
 int
 test_simple(size_t num_threads)
 {
-    AE2_engine_t engine;
-    AE2_task_t task1, task2, task3;
-    AE2_task_t parent_task[10];
+    AXE_engine_t engine;
+    AXE_task_t task1, task2, task3;
+    AXE_task_t parent_task[10];
     basic_task_t task_data[10];
     basic_task_shared_t shared_task_data;
     int i;
@@ -91,8 +91,8 @@ test_simple(size_t num_threads)
         task_data[i].failed = 0;
     } /* end for */
 
-    /* Create AE2 engine */
-    if(AE2create_engine(num_threads, &engine) != AE2_SUCCEED)
+    /* Create AXE engine */
+    if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -108,12 +108,12 @@ test_simple(size_t num_threads)
         task_data[i].call_order = -1;
 
     /* Create simple task */
-    if(AE2create_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[0], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AE2wait(task1) < 0)
+    if(AXEwait(task1) < 0)
         TEST_ERROR;
 
     /* Verify results */
@@ -129,7 +129,7 @@ test_simple(size_t num_threads)
         TEST_ERROR;
 
     /* Close task */
-    if(AE2finish(task1) != AE2_SUCCEED)
+    if(AXEfinish(task1) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -145,17 +145,17 @@ test_simple(size_t num_threads)
         task_data[i].call_order = -1;
 
     /* Create first task */
-    if(AE2create_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[0], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second task */
-    if(AE2create_task(engine, &task2, 1, &task1, 0, NULL, basic_task_worker,
-            &task_data[1], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task2, 1, &task1, 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AE2wait(task2) < 0)
+    if(AXEwait(task2) < 0)
         TEST_ERROR;
 
     /* Verify results */
@@ -173,9 +173,9 @@ test_simple(size_t num_threads)
         TEST_ERROR;
 
     /* Close tasks */
-    if(AE2finish(task1) != AE2_SUCCEED)
+    if(AXEfinish(task1) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task2) != AE2_SUCCEED)
+    if(AXEfinish(task2) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -191,24 +191,24 @@ test_simple(size_t num_threads)
         task_data[i].call_order = -1;
 
     /* Create parent task */
-    if(AE2create_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[0], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create first child task */
-    if(AE2create_task(engine, &task2, 1, &task1, 0, NULL, basic_task_worker,
-            &task_data[1], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task2, 1, &task1, 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second child task */
-    if(AE2create_task(engine, &task3, 1, &task1, 0, NULL, basic_task_worker,
-            &task_data[2], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task3, 1, &task1, 0, NULL, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AE2wait(task2) < 0)
+    if(AXEwait(task2) < 0)
         TEST_ERROR;
-    if(AE2wait(task3) < 0)
+    if(AXEwait(task3) < 0)
         TEST_ERROR;
 
     /* Verify results */
@@ -228,11 +228,11 @@ test_simple(size_t num_threads)
         TEST_ERROR;
 
     /* Close tasks */
-    if(AE2finish(task1) != AE2_SUCCEED)
+    if(AXEfinish(task1) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task2) != AE2_SUCCEED)
+    if(AXEfinish(task2) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task3) != AE2_SUCCEED)
+    if(AXEfinish(task3) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -248,24 +248,24 @@ test_simple(size_t num_threads)
         task_data[i].call_order = -1;
 
     /* Create first parent task */
-    if(AE2create_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[0], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second parent task */
-    if(AE2create_task(engine, &task2, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[1], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task2, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child task */
     parent_task[0] = task1;
     parent_task[1] = task2;
-    if(AE2create_task(engine, &task3, 2, parent_task, 0, NULL, basic_task_worker,
-            &task_data[2], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task3, 2, parent_task, 0, NULL, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AE2wait(task3) < 0)
+    if(AXEwait(task3) < 0)
         TEST_ERROR;
 
     /* Verify results */
@@ -285,11 +285,11 @@ test_simple(size_t num_threads)
         TEST_ERROR;
 
     /* Close tasks */
-    if(AE2finish(task1) != AE2_SUCCEED)
+    if(AXEfinish(task1) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task2) != AE2_SUCCEED)
+    if(AXEfinish(task2) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task3) != AE2_SUCCEED)
+    if(AXEfinish(task3) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -297,14 +297,14 @@ test_simple(size_t num_threads)
      * Close
      */
     /* Terminate engine */
-    if(AE2terminate_engine(engine, TRUE) != AE2_SUCCEED)
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
 
     PASSED();
     return 0;
 
 error:
-    (void)AE2terminate_engine(engine, FALSE);
+    (void)AXEterminate_engine(engine, FALSE);
 
     return 1;
 } /* end test_simple() */
@@ -313,9 +313,9 @@ error:
 int
 test_sufficient(size_t num_threads)
 {
-    AE2_engine_t engine;
-    AE2_task_t task1, task2, task3;
-    AE2_task_t parent_task[10];
+    AXE_engine_t engine;
+    AXE_task_t task1, task2, task3;
+    AXE_task_t parent_task[10];
     basic_task_t task_data[10];
     basic_task_shared_t shared_task_data;
     int i;
@@ -329,8 +329,8 @@ test_sufficient(size_t num_threads)
         task_data[i].failed = 0;
     } /* end for */
 
-    /* Create AE2 engine */
-    if(AE2create_engine(num_threads, &engine) != AE2_SUCCEED)
+    /* Create AXE engine */
+    if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -346,17 +346,17 @@ test_sufficient(size_t num_threads)
         task_data[i].call_order = -1;
 
     /* Create first task */
-    if(AE2create_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[0], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second task */
-    if(AE2create_task(engine, &task2, 0, NULL, 1, &task1, basic_task_worker,
-            &task_data[1], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task2, 0, NULL, 1, &task1, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AE2wait(task2) < 0)
+    if(AXEwait(task2) < 0)
         TEST_ERROR;
 
     /* Verify results */
@@ -374,9 +374,9 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Close tasks */
-    if(AE2finish(task1) != AE2_SUCCEED)
+    if(AXEfinish(task1) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task2) != AE2_SUCCEED)
+    if(AXEfinish(task2) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -392,24 +392,24 @@ test_sufficient(size_t num_threads)
         task_data[i].call_order = -1;
 
     /* Create parent task */
-    if(AE2create_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[0], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create first child task */
-    if(AE2create_task(engine, &task2, 0, NULL, 1, &task1, basic_task_worker,
-            &task_data[1], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task2, 0, NULL, 1, &task1, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second child task */
-    if(AE2create_task(engine, &task3, 0, NULL, 1, &task1, basic_task_worker,
-            &task_data[2], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task3, 0, NULL, 1, &task1, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AE2wait(task2) < 0)
+    if(AXEwait(task2) < 0)
         TEST_ERROR;
-    if(AE2wait(task3) < 0)
+    if(AXEwait(task3) < 0)
         TEST_ERROR;
 
     /* Verify results */
@@ -429,11 +429,11 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Close tasks */
-    if(AE2finish(task1) != AE2_SUCCEED)
+    if(AXEfinish(task1) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task2) != AE2_SUCCEED)
+    if(AXEfinish(task2) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task3) != AE2_SUCCEED)
+    if(AXEfinish(task3) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -449,28 +449,28 @@ test_sufficient(size_t num_threads)
         task_data[i].call_order = -1;
 
     /* Create first parent task */
-    if(AE2create_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[0], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task1, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second parent task */
-    if(AE2create_task(engine, &task2, 0, NULL, 0, NULL, basic_task_worker,
-            &task_data[1], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task2, 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child task */
     parent_task[0] = task1;
     parent_task[1] = task2;
-    if(AE2create_task(engine, &task3, 0, NULL, 2, parent_task, basic_task_worker,
-            &task_data[2], NULL) != AE2_SUCCEED)
+    if(AXEcreate_task(engine, &task3, 0, NULL, 2, parent_task, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AE2wait(task1) < 0)
+    if(AXEwait(task1) < 0)
         TEST_ERROR;
-    if(AE2wait(task2) < 0)
+    if(AXEwait(task2) < 0)
         TEST_ERROR;
-    if(AE2wait(task3) < 0)
+    if(AXEwait(task3) < 0)
         TEST_ERROR;
 
     /* Verify results */
@@ -486,11 +486,11 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Close tasks */
-    if(AE2finish(task1) != AE2_SUCCEED)
+    if(AXEfinish(task1) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task2) != AE2_SUCCEED)
+    if(AXEfinish(task2) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AE2finish(task3) != AE2_SUCCEED)
+    if(AXEfinish(task3) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -498,14 +498,14 @@ test_sufficient(size_t num_threads)
      * Close
      */
     /* Terminate engine */
-    if(AE2terminate_engine(engine, TRUE) != AE2_SUCCEED)
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
 
     PASSED();
     return 0;
 
 error:
-    (void)AE2terminate_engine(engine, FALSE);
+    (void)AXEterminate_engine(engine, FALSE);
 
     return 1;
 } /* end test_sufficient() */

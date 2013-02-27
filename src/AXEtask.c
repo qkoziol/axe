@@ -13,13 +13,13 @@
  * access to either file, you may request a copy from help@hdfgroup.org.     *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#include "AE2engine.h"
-#include "AE2schedule.h"
-#include "AE2task.h"
+#include "AXEengine.h"
+#include "AXEschedule.h"
+#include "AXEtask.h"
 
 
 void
-AE2_task_incr_ref(AE2_task_int_t *task)
+AXE_task_incr_ref(AXE_task_int_t *task)
 {
 #ifdef NAF_DEBUG_REF
     printf(" %d\n", OPA_fetch_and_incr_int(&task->rc) + 1); fflush(stdout);
@@ -28,11 +28,11 @@ AE2_task_incr_ref(AE2_task_int_t *task)
 #endif /* NAF_DEBUG_REF */
 
     return;
-} /* end AE2_task_incr_ref() */
+} /* end AXE_task_incr_ref() */
 
 
 void
-AE2_task_decr_ref(AE2_task_int_t *task)
+AXE_task_decr_ref(AXE_task_int_t *task)
 {
 #ifdef NAF_DEBUG_REF
     int rc = OPA_fetch_and_decr_int(&task->rc) - 1;
@@ -44,25 +44,25 @@ AE2_task_decr_ref(AE2_task_int_t *task)
 #endif /* NAF_DEBUG_REF */
         /* The scheduler should always hold a reference until the task is done
          * (until we implement remove, etc.) */
-        assert((AE2_status_t)OPA_load_int(&task->status) == AE2_TASK_DONE);
+        assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE);
 
-        AE2_task_free(task);
+        AXE_task_free(task);
     } /* end if */
 
     return;
-} /* end AE2_task_decr_ref() */
+} /* end AXE_task_decr_ref() */
 
 
-AE2_error_t
-AE2_task_create(AE2_engine_int_t *engine, AE2_task_int_t **task/*out*/,
-    size_t num_necessary_parents, AE2_task_int_t **necessary_parents,
-    size_t num_sufficient_parents, AE2_task_int_t **sufficient_parents,
-    AE2_task_op_t op, void *op_data, AE2_task_free_op_data_t free_op_data)
+AXE_error_t
+AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
+    size_t num_necessary_parents, AXE_task_int_t **necessary_parents,
+    size_t num_sufficient_parents, AXE_task_int_t **sufficient_parents,
+    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
     _Bool is_task_mutex_init = FALSE;
     _Bool is_wait_cond_init = FALSE;
     _Bool is_wait_mutex_init = FALSE;
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(engine);
     assert(task);
@@ -72,7 +72,7 @@ AE2_task_create(AE2_engine_int_t *engine, AE2_task_int_t **task/*out*/,
     *task = NULL;
 
     /* Allocate task struct */
-    if(NULL == (*task = (AE2_task_int_t *)malloc(sizeof(AE2_task_int_t))))
+    if(NULL == (*task = (AXE_task_int_t *)malloc(sizeof(AXE_task_int_t))))
         ERROR;
 
     /* Initialize malloc'd fields to NULL, so they are not freed if something
@@ -86,15 +86,15 @@ AE2_task_create(AE2_engine_int_t *engine, AE2_task_int_t **task/*out*/,
     (*task)->op = op;
     (*task)->num_necessary_parents = num_necessary_parents;
     if(num_necessary_parents) {
-        if(NULL == ((*task)->necessary_parents = (AE2_task_int_t **)malloc(num_necessary_parents * sizeof(AE2_task_int_t *))))
+        if(NULL == ((*task)->necessary_parents = (AXE_task_int_t **)malloc(num_necessary_parents * sizeof(AXE_task_int_t *))))
             ERROR;
-        (void)memcpy((*task)->necessary_parents, necessary_parents, num_necessary_parents * sizeof(AE2_task_int_t *));
+        (void)memcpy((*task)->necessary_parents, necessary_parents, num_necessary_parents * sizeof(AXE_task_int_t *));
     } /* end if */
     (*task)->num_sufficient_parents = num_sufficient_parents;
     if(num_sufficient_parents) {
-        if(NULL == ((*task)->sufficient_parents = (AE2_task_int_t **)malloc(num_sufficient_parents * sizeof(AE2_task_int_t *))))
+        if(NULL == ((*task)->sufficient_parents = (AXE_task_int_t **)malloc(num_sufficient_parents * sizeof(AXE_task_int_t *))))
             ERROR;
-        (void)memcpy((*task)->sufficient_parents, sufficient_parents, num_sufficient_parents * sizeof(AE2_task_int_t *));
+        (void)memcpy((*task)->sufficient_parents, sufficient_parents, num_sufficient_parents * sizeof(AXE_task_int_t *));
     } /* end if */
     (*task)->op_data = op_data;
     OPA_Queue_header_init(&(*task)->scheduled_queue_hdr);
@@ -109,7 +109,7 @@ AE2_task_create(AE2_engine_int_t *engine, AE2_task_int_t **task/*out*/,
     if(0 != pthread_mutex_init(&(*task)->wait_mutex, NULL))
         ERROR;
     is_wait_mutex_init = TRUE;
-    OPA_store_int(&(*task)->status, (int)AE2_WAITING_FOR_PARENT);
+    OPA_store_int(&(*task)->status, (int)AXE_WAITING_FOR_PARENT);
 
     /* Initialize reference count to 1.  The caller of this function is
      * responsible for decrementing the reference count when it is done with the
@@ -129,14 +129,14 @@ AE2_task_create(AE2_engine_int_t *engine, AE2_task_int_t **task/*out*/,
     (*task)->sufficient_children_nalloc = 0;
     (*task)->sufficient_children = NULL;
 
-    /* AE2_schedule_add will initialize task_list_next and task_list_prev */
+    /* AXE_schedule_add will initialize task_list_next and task_list_prev */
 
     /* Add task to schedule */
-    if(AE2_schedule_add(*task) != AE2_SUCCEED)
+    if(AXE_schedule_add(*task) != AXE_SUCCEED)
         ERROR;
 
 done:
-    if(ret_value == AE2_FAIL)
+    if(ret_value == AXE_FAIL)
         if(*task) {
             if((*task)->necessary_parents)
                 free((*task)->necessary_parents);
@@ -153,11 +153,11 @@ done:
         } /* end if */
 
     return ret_value;
-} /* end AE2_task_create() */
+} /* end AXE_task_create() */
 
 
 void
-AE2_task_get_op_data(AE2_task_int_t *task, void **op_data/*out*/)
+AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/)
 {
     assert(task);
     assert(op_data);
@@ -166,43 +166,43 @@ AE2_task_get_op_data(AE2_task_int_t *task, void **op_data/*out*/)
     *op_data = task->op_data;
 
     return;
-} /* end AE2_task_get_op_data() */
+} /* end AXE_task_get_op_data() */
 
 
 void
-AE2_task_get_status(AE2_task_int_t *task, AE2_status_t *status/*out*/)
+AXE_task_get_status(AXE_task_int_t *task, AXE_status_t *status/*out*/)
 {
     assert(task);
     assert(status);
 
     /* Get status */
-    *status = (AE2_status_t)OPA_load_int(&task->status);
+    *status = (AXE_status_t)OPA_load_int(&task->status);
 
     return;
-} /* end AE2_task_get_op_data() */
+} /* end AXE_task_get_op_data() */
 
 
-AE2_error_t
-AE2_task_worker(void *_task)
+AXE_error_t
+AXE_task_worker(void *_task)
 {
-    AE2_task_int_t *task = (AE2_task_int_t *)_task;
+    AXE_task_int_t *task = (AXE_task_int_t *)_task;
     size_t old_num_sufficient_parents;
     size_t i;
     size_t block;
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
     assert(task->op);
 
     /* Let the scheduler know that this worker is running and will eventually
      * check the schedule for more tasks */
-    AE2_schedule_worker_running(task->engine->schedule);
+    AXE_schedule_worker_running(task->engine->schedule);
 
     /* Main loop */
     do {
         /* Mark task as running, if it has not been canceled */
-        if((AE2_status_t)OPA_cas_int(&task->status, (int)AE2_TASK_SCHEDULED,
-                (int)AE2_TASK_RUNNING) == AE2_TASK_SCHEDULED) {
+        if((AXE_status_t)OPA_cas_int(&task->status, (int)AXE_TASK_SCHEDULED,
+                (int)AXE_TASK_RUNNING) == AXE_TASK_SCHEDULED) {
 
             /* Update sufficient parents array */
             /* No need to worry about contention since no other threads should
@@ -213,15 +213,15 @@ AE2_task_worker(void *_task)
             for(i = 0; i < old_num_sufficient_parents; i++) {
                 /* Keep track of how many complete tasks we found in a row and
                  * copy in blocks */
-                if((AE2_status_t)OPA_load_int(&task->sufficient_parents[i]->status)
-                        == AE2_TASK_DONE)
+                if((AXE_status_t)OPA_load_int(&task->sufficient_parents[i]->status)
+                        == AXE_TASK_DONE)
                     block++;
                 else {
                     /* Decrement reference count on uncomplete parent */
     #ifdef NAF_DEBUG_REF
-                    printf("AE2_task_worker: decr ref: %p", task->sufficient_parents[i]);
+                    printf("AXE_task_worker: decr ref: %p", task->sufficient_parents[i]);
     #endif /* NAF_DEBUG_REF */
-                    AE2_task_decr_ref(task->sufficient_parents[i]);
+                    AXE_task_decr_ref(task->sufficient_parents[i]);
 
                     if(block) {
                         /* End of block, slide block down (if necessary) */
@@ -250,50 +250,50 @@ AE2_task_worker(void *_task)
 
             /* Execute client task */
             if(task->op)
-                (task->op)(task->num_necessary_parents, (AE2_task_t *)task->necessary_parents, task->num_sufficient_parents, (AE2_task_t *)task->sufficient_parents, task->op_data);
+                (task->op)(task->num_necessary_parents, (AXE_task_t *)task->necessary_parents, task->num_sufficient_parents, (AXE_task_t *)task->sufficient_parents, task->op_data);
         } /* end if */
         else {
             /* The task is canceled */
-            assert((AE2_status_t)OPA_load_int(&task->status) == AE2_TASK_CANCELED);
+            assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED);
 
             /* Remove references to all necessary parents */
             for(i = 0; i < task->num_necessary_parents; i++)
-                AE2_task_decr_ref(task->necessary_parents[i]);
+                AXE_task_decr_ref(task->necessary_parents[i]);
 
             /* Remove references to all sufficient parents */
             for(i = 0; i < task->num_sufficient_parents; i++)
-                AE2_task_decr_ref(task->sufficient_parents[i]);
+                AXE_task_decr_ref(task->sufficient_parents[i]);
         } /* end else */
 
         /* Update the schedule to reflect that this task is complete, and
-         * retrieve new task (AE2_schedule_finish takes ownership of old task)
+         * retrieve new task (AXE_schedule_finish takes ownership of old task)
          */
-        if(AE2_schedule_finish(&task) != AE2_SUCCEED)
+        if(AXE_schedule_finish(&task) != AXE_SUCCEED)
             ERROR;
     } while(task);
 
 done:
     return ret_value;
-} /* end AE2_task_worker() */
+} /* end AXE_task_worker() */
 
 
-AE2_error_t
-AE2_task_wait(AE2_task_int_t *task)
+AXE_error_t
+AXE_task_wait(AXE_task_int_t *task)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
 
     /* Lock wait mutex.  Do so before checking the status so we know that
-     * (together with the similar mutex in AE2_schedule_finish()) if the status
-     * is not AE2_TASK_DONE that we will be woken up from pthread_cond_wait()
+     * (together with the similar mutex in AXE_schedule_finish()) if the status
+     * is not AXE_TASK_DONE that we will be woken up from pthread_cond_wait()
      * when the task is complete, i.e. the signal will not be sent before this
      * thread begins waiting. */
     if(0 != pthread_mutex_lock(&task->wait_mutex))
         ERROR;
 
     /* Check if the task is already complete */
-    if((AE2_status_t)OPA_load_int(&task->status) != AE2_TASK_DONE)
+    if((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_DONE)
         /* Wait for signal */
         if(0 != pthread_cond_wait(&task->wait_cond, &task->wait_mutex))
             ERROR;
@@ -302,28 +302,28 @@ AE2_task_wait(AE2_task_int_t *task)
     if(0 != pthread_mutex_unlock(&task->wait_mutex))
         ERROR;
 
-    assert((AE2_status_t)OPA_load_int(&task->status) == AE2_TASK_DONE);
+    assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE);
 
 done:
     return ret_value;
-} /* end AE2_task_wait() */
+} /* end AXE_task_wait() */
 
 
-AE2_error_t
-AE2_task_free(AE2_task_int_t *task)
+AXE_error_t
+AXE_task_free(AXE_task_int_t *task)
 {
-    AE2_error_t ret_value = AE2_SUCCEED;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
 
 #ifdef NAF_DEBUG
-    printf("AE2_task_free: %p\n", task); fflush(stdout);
+    printf("AXE_task_free: %p\n", task); fflush(stdout);
 #endif /* NAF_DEBUG */
 
     /* Remove from task list, if in list (might not be in list because the
      * schedule is being freed) */
     if(task->task_list_next)
-        if(AE2_schedule_remove_task(task) != AE2_SUCCEED)
+        if(AXE_schedule_remove_task(task) != AXE_SUCCEED)
             ERROR;
 
     /* Free fields */
@@ -346,5 +346,5 @@ AE2_task_free(AE2_task_int_t *task)
 
 done:
     return ret_value;
-} /* end AE2_task_free */
+} /* end AXE_task_free */
 
