@@ -108,6 +108,42 @@ done:
 
 /* Note for AXEremove/remove_all: Does the app still need to call AXEfinish() or
  * do these functions free the task(s)? */
+AXE_error_t
+AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!task)
+        ERROR;
+
+    /* Cancel task */
+    if(AXE_task_cancel_leaf(task, remove_status) < 0)
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXEremove() */
+
+
+/* This function does not fail if it encounters a task that is executing - it
+ * allows that task to continue but continues canceling other tasks */
+AXE_error_t
+AXEremove_all(AXE_engine_t engine, AXE_remove_status_t *remove_status)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!engine)
+        ERROR;
+
+    /* Cancel all tasks */
+    if(AXE_schedule_cancel_all(((AXE_engine_int_t *)engine)->schedule, remove_status) < 0)
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXEremove_all() */
 
 
 AXE_error_t

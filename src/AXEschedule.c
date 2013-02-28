@@ -36,6 +36,12 @@ struct AXE_schedule_t {
 };
 
 
+/*
+ * Local functions
+ */
+static AXE_error_t AXE_schedule_add_to_list(AXE_task_int_t *task);
+
+
 AXE_error_t
 AXE_schedule_create(size_t num_threads, AXE_schedule_t **schedule/*out*/)
 {
@@ -132,11 +138,6 @@ AXE_schedule_add(AXE_task_int_t *task)
 
     schedule = task->engine->schedule;
 
-    /* Increment the number of tasks, and set all_tasks_done to FALSE if this
-     * was the first task */
-    if(OPA_fetch_and_incr_int(&schedule->num_tasks) == 0)
-        OPA_store_int(&schedule->all_tasks_done, FALSE);
-
     /* Increment the reference count on the task due to it being placed in the
      * scheduler */
 #ifdef AXE_DEBUG_REF
@@ -172,6 +173,20 @@ AXE_schedule_add(AXE_task_int_t *task)
             /* Will need to add a check for cancelled state here when remove,
              * etc. implemented */
             OPA_incr_int(&task->num_conditions_complete);
+        else if((AXE_status_t)OPA_load_int(&parent_task->status) == AXE_TASK_CANCELED) {
+            /* Parent is canceled.  If this happens, return an error but keep
+             * this task present and mark it canceled so things get cleaned up
+             * properly */
+            OPA_store_int(&task->status, (int)AXE_TASK_CANCELED);
+
+            /* Unlock parent task mutex */
+            (void)pthread_mutex_unlock(&parent_task->task_mutex);
+
+            /* Add to task list */
+            (void)AXE_schedule_add_to_list(task);
+
+            ERROR;
+        } /* end if */
         else {
             /* Increment reference count on child task, so child does not get freed
              * before necessary parent finishes.  This could only happen if the
@@ -239,6 +254,20 @@ AXE_schedule_add(AXE_task_int_t *task)
                 OPA_incr_int(&task->num_conditions_complete);
             } /* end if */
         } /* end if */
+        else if((AXE_status_t)OPA_load_int(&parent_task->status) == AXE_TASK_CANCELED) {
+            /* Parent is canceled.  If this happens, return an error but keep
+             * this task present and mark it canceled so things get cleaned up
+             * properly */
+            OPA_store_int(&task->status, (int)AXE_TASK_CANCELED);
+
+            /* Unlock parent task mutex */
+            (void)pthread_mutex_unlock(&parent_task->task_mutex);
+
+            /* Add to task list */
+            (void)AXE_schedule_add_to_list(task);
+
+            ERROR;
+        } /* end if */
         else {
             /* Increment reference count on child task, so child does not get freed
              * before sufficient parent finishes */
@@ -286,21 +315,13 @@ AXE_schedule_add(AXE_task_int_t *task)
     printf("AXE_schedule_add: added %p\n", task); fflush(stdout);
 #endif /* AXE_DEBUG */
 
+    /* Increment the number of tasks, and set all_tasks_done to FALSE if this
+     * was the first task */
+    if(OPA_fetch_and_incr_int(&schedule->num_tasks) == 0)
+        OPA_store_int(&schedule->all_tasks_done, FALSE);
+
     /* Add task to task list */
-    /* Lock task list mutex */
-    if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
-        ERROR;
-
-    /* Update list */
-    assert(schedule->task_list_head.task_list_next);
-    assert(schedule->task_list_head.task_list_next->task_list_prev == &schedule->task_list_head);
-    task->task_list_next = schedule->task_list_head.task_list_next;
-    task->task_list_prev = &schedule->task_list_head;
-    schedule->task_list_head.task_list_next = task;
-    task->task_list_next->task_list_prev = task;
-
-    /* Unlock task list mutex */
-    if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
+    if(AXE_schedule_add_to_list(task) != AXE_SUCCEED)
         ERROR;
 
     /* Increment num_conditions_complete to account for initialization being
@@ -519,58 +540,60 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
         AXE_task_decr_ref(child_task);
     } /* end for */
 
-    /* Lock wait mutex before we change stat to done, so AXE_task_wait knows
-     * that if the task is not marked done it is safe to wait on the condition.
-     */
-    /* It should be possible to eliminate this lock and broadcast unless a
-     * thread actually needs it by using a field in the thread struct to keep
-     * track of whether any threads are waiting on this task and careful
-     * ordering of operations.  This function would first set the status to
-     * DONE, do a read/barrier, then check the waiting field. AXE_task_wait()
-     * would first set the waiting field, do a read/write barrier, then check
-     * the task status.  I am not sure how much faster this would be (if any)
-     * than the simpler/more obvious implementation below.  A similar note
-     * applies to the wait_all implementation as well.  -NAF */
-    if(0 != pthread_mutex_lock(&(*task)->wait_mutex))
-        ERROR;
+    /* Keep task mutex locked while we change status to done, so AXE_task_wait
+     * knows that if the task is not marked done it is safe to wait on the
+     * condition. */
+    /* It should be possible to eliminate the signal broadcast unless a thread
+     * actually needs it by using a field in the thread struct to keep track of
+     * whether any threads are waiting on this task and careful ordering of
+     * operations.  This function would first set the status to DONE, do a
+     * read/write barrier, then check the waiting field. AXE_task_wait() would
+     * first set the waiting field, do a read/write barrier, then check the task
+     * status.  I am not sure how much faster this would be (if any) than the
+     * simpler/more obvious implementation below.  A similar note applies to the
+     * wait_all implementation as well.  -NAF */
 
+    /* Mark as done, but only if it was not canceled.  Only send signals to
+     * waiting threads if it was not canceled (if it was canceled then the
+     * signals were already sent) */
+    if((AXE_status_t)OPA_cas_int(&(*task)->status, (int)AXE_TASK_RUNNING,
+            (int)AXE_TASK_DONE) == AXE_TASK_RUNNING) {
 #ifdef AXE_DEBUG
     printf("AXE_schedule_finish: %p->status = AXE_TASK_DONE\n", *task); fflush(stdout);
 #endif /* AXE_DEBUG */
 
-    OPA_store_int(&(*task)->status, (int)AXE_TASK_DONE);
-
-    /* Release task mutex */
-    if(0 != pthread_mutex_unlock(&(*task)->task_mutex))
-        ERROR;
-
-    /* Signal threads waiting on this task to complete */
-    if(0 != pthread_cond_broadcast(&(*task)->wait_cond))
-        ERROR;
-
-    /* Unlock wait mutex */
-    if(0 != pthread_mutex_unlock(&(*task)->wait_mutex))
-        ERROR;
-
-    /* Decrement the number of tasks and if this was the last task signal
-     * threads waiting for all tasks to complete */
-    if(OPA_decr_and_test_int(&schedule->num_tasks)) {
-        /* Lock wait_all mutex, before changing all_tasks_done to avoid race
-         * condition */
-        if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
+        /* Signal threads waiting on this task to complete */
+        if(0 != pthread_cond_broadcast(&(*task)->wait_cond))
             ERROR;
 
-        /* Mark all tasks as done */
-        OPA_store_int(&schedule->all_tasks_done, TRUE);
-
-        /* Signal threads waiting on all tasks to complete */
-        if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
+        /* Unlock task mutex */
+        if(0 != pthread_mutex_unlock(&(*task)->task_mutex))
             ERROR;
 
-        /* Unlock wait_all mutex */
-        if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
-            ERROR;
+        /* Decrement the number of tasks and if this was the last task signal
+         * threads waiting for all tasks to complete */
+        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
+            /* Lock wait_all mutex, before changing all_tasks_done to avoid race
+             * condition */
+            if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
+                ERROR;
+
+            /* Mark all tasks as done */
+            OPA_store_int(&schedule->all_tasks_done, TRUE);
+
+            /* Signal threads waiting on all tasks to complete */
+            if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
+                ERROR;
+
+            /* Unlock wait_all mutex */
+            if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
+                ERROR;
+        } /* end if */
     } /* end if */
+    else
+        /* Unlock task mutex */
+        if(0 != pthread_mutex_unlock(&(*task)->task_mutex))
+            ERROR;
 
     /* Note: if we ever switch to a lockfree algorithm, we will need to add a
      * read/write barrier here to ensure consistency across client operator
@@ -672,31 +695,122 @@ done:
 } /* end AXE_schedule_wait_all() */
 
 
-void
-AXE_schedule_cancel_all(AXE_schedule_t *schedule)
+AXE_error_t
+AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
+    _Bool have_task_mutex)
+{
+    AXE_schedule_t *schedule;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(task);
+
+    schedule = task->engine->schedule;
+
+    /* Lock task mutex if we do not already have it */
+    if(!have_task_mutex)
+        if(0 != pthread_mutex_lock(&task->task_mutex))
+            ERROR;
+
+    /* Try to mark the task canceled.  Only send the signal if we succeed. */
+    if(((AXE_status_t)OPA_cas_int(&task->status, (int)AXE_WAITING_FOR_PARENT,
+              (int)AXE_TASK_CANCELED) == AXE_WAITING_FOR_PARENT)
+            || ((AXE_status_t)OPA_cas_int(&task->status,
+              (int)AXE_TASK_SCHEDULED, (int)AXE_TASK_CANCELED)
+              == AXE_TASK_SCHEDULED)) {
+        /* The task was canceled */
+        if(remove_status)
+            *remove_status = AXE_CANCELED;
+
+        /* Signal threads waiting on this task to complete */
+        if(0 != pthread_cond_broadcast(&task->wait_cond))
+            ERROR;
+
+        /* Unlock task mutex */
+        if(0 != pthread_mutex_unlock(&task->task_mutex))
+            ERROR;
+
+        /* Decrement the number of tasks and if this was the last task signal
+         * threads waiting for all tasks to complete */
+        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
+            /* Lock wait_all mutex, before changing all_tasks_done to avoid race
+             * condition */
+            if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
+                ERROR;
+
+            /* Mark all tasks as done */
+            OPA_store_int(&schedule->all_tasks_done, TRUE);
+
+            /* Signal threads waiting on all tasks to complete */
+            if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
+                ERROR;
+
+            /* Unlock wait_all mutex */
+            if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
+                ERROR;
+        } /* end if */
+    } /* end if */
+    else {
+        /* Unlock task mutex */
+        if(0 != pthread_mutex_unlock(&task->task_mutex))
+            ERROR;
+
+        /* Check task status.  Okay to do here because canceled and done tasks
+         * never change status, and running tasks only become done.  If a task
+         * finished during execution it's reasonable to return AXE_ALL_DONE.  If
+         * the task was already canceled, return AXE_ALL_DONE (for now). */
+        if(remove_status) {
+            if((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_RUNNING)
+                *remove_status = AXE_NOT_CANCELED;
+            else
+                *remove_status = AXE_ALL_DONE;
+        } /* end if */
+    } /* end else */
+
+done:
+    return ret_value;
+} /* end AXE_schedule_cancel */
+
+
+AXE_error_t
+AXE_schedule_cancel_all(AXE_schedule_t *schedule,
+    AXE_remove_status_t *remove_status)
 {
     AXE_task_int_t *task;
+    AXE_remove_status_t task_remove_status;
+    AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(schedule);
+
+    /* Start remove_status as AXE_ALL_DONE, so the first task sets remove_status
+     * to its remove status */
 
     /* Loop over all tasks in the task list, marking all that are not running or
      * done as canceled */
     for(task = schedule->task_list_head.task_list_next;
             task != &schedule->task_list_tail;
-            task = task->task_list_next)
-        if((AXE_status_t)OPA_cas_int(&task->status, (int)AXE_WAITING_FOR_PARENT,
-                (int)AXE_TASK_CANCELED) != AXE_WAITING_FOR_PARENT)
-            (void)OPA_cas_int(&task->status, (int)AXE_TASK_SCHEDULED,
-                    (int)AXE_TASK_CANCELED);
+            task = task->task_list_next) {
+        /* Cancel task */
+        if(AXE_schedule_cancel(task, &task_remove_status, FALSE) != AXE_SUCCEED)
+            ERROR;
 
-    return;
+        /* Update remove_status */
+        if(remove_status && ((*remove_status = AXE_ALL_DONE)
+                || ((*remove_status = AXE_CANCELED)
+                  && (task_remove_status == AXE_NOT_CANCELED))))
+            *remove_status = task_remove_status;
+    } /* end for */
+
+done:
+    return ret_value;
 } /* end AXE_cancel_all() */
 
 
 AXE_error_t
-AXE_schedule_remove_task(AXE_task_int_t *task)
+AXE_schedule_remove_from_list(AXE_task_int_t *task)
 {
     AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(task);
 
     /* Lock task list mutex */
     if(0 != pthread_mutex_lock(&task->engine->schedule->task_list_mutex))
@@ -716,7 +830,7 @@ AXE_schedule_remove_task(AXE_task_int_t *task)
 
 done:
     return ret_value;
-} /* end AXE_schedule_remove_task() */
+} /* end AXE_schedule_remove_from_list() */
 
 
 AXE_error_t
@@ -775,4 +889,36 @@ AXE_schedule_free(AXE_schedule_t *schedule)
 done:
     return ret_value;
 } /* end AXE_schedule_free() */
+
+
+/* The caller must not hold any task mutexes when calling this function! */
+static AXE_error_t
+AXE_schedule_add_to_list(AXE_task_int_t *task)
+{
+    AXE_schedule_t *schedule;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(task);
+
+    schedule = task->engine->schedule;
+
+    /* Lock task list mutex */
+    if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
+        ERROR;
+
+    /* Update list */
+    assert(schedule->task_list_head.task_list_next);
+    assert(schedule->task_list_head.task_list_next->task_list_prev == &schedule->task_list_head);
+    task->task_list_next = schedule->task_list_head.task_list_next;
+    task->task_list_prev = &schedule->task_list_head;
+    schedule->task_list_head.task_list_next = task;
+    task->task_list_next->task_list_prev = task;
+
+    /* Unlock task list mutex */
+    if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXE_schedule_add_to_list() */
 

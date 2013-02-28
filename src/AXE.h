@@ -35,6 +35,12 @@ typedef enum {
 } AXE_status_t;
 
 typedef enum {
+    AXE_CANCELED,
+    AXE_NOT_CANCELED,
+    AXE_ALL_DONE
+} AXE_remove_status_t;
+
+typedef enum {
     AXE_SUCCEED,
     AXE_FAIL
 } AXE_error_t;
@@ -55,10 +61,14 @@ AXE_error_t AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data);
+AXE_error_t AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status);
+AXE_error_t AXEremove_all(AXE_engine_t engine,
+    AXE_remove_status_t *remove_status);
 AXE_error_t AXEget_op_data(AXE_task_t task, void **op_data/*out*/);
 AXE_error_t AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/);
 AXE_error_t AXEwait(AXE_task_t task);
 AXE_error_t AXEfinish(AXE_task_t task);
+AXE_error_t AXEfinish_all(size_t num_tasks, AXE_task_t task[]);
 
 
 #endif /* AXE_H_INCLUDED */

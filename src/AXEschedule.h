@@ -34,8 +34,11 @@ void AXE_schedule_worker_running(AXE_schedule_t *schedule);
 AXE_error_t AXE_schedule_add(AXE_task_int_t *task);
 AXE_error_t AXE_schedule_finish(AXE_task_int_t **task/*in,out*/);
 AXE_error_t AXE_schedule_wait_all(AXE_schedule_t *schedule);
-void AXE_schedule_cancel_all(AXE_schedule_t *schedule);
-AXE_error_t AXE_schedule_remove_task(AXE_task_int_t *task);
+AXE_error_t AXE_schedule_cancel(AXE_task_int_t *task,
+    AXE_remove_status_t *remove_status, _Bool have_task_mutex);
+AXE_error_t AXE_schedule_cancel_all(AXE_schedule_t *schedule,
+    AXE_remove_status_t *remove_status);
+AXE_error_t AXE_schedule_remove_from_list(AXE_task_int_t *task);
 AXE_error_t AXE_schedule_free(AXE_schedule_t *schedule);
 
 

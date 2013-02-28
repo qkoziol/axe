@@ -18,6 +18,14 @@
 #include "AXEtask.h"
 
 
+/*
+ * Local functions
+ */
+static AXE_error_t AXE_task_init(AXE_engine_int_t *engine,
+    AXE_task_int_t **task/*out*/, AXE_task_op_t op, void *op_data,
+    AXE_task_free_op_data_t free_op_data);
+
+
 void
 AXE_task_incr_ref(AXE_task_int_t *task)
 {
@@ -59,9 +67,6 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     size_t num_sufficient_parents, AXE_task_int_t **sufficient_parents,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
-    _Bool is_task_mutex_init = FALSE;
-    _Bool is_wait_cond_init = FALSE;
-    _Bool is_wait_mutex_init = FALSE;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(engine);
@@ -71,65 +76,31 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
 
     *task = NULL;
 
-    /* Allocate task struct */
-    if(NULL == (*task = (AXE_task_int_t *)malloc(sizeof(AXE_task_int_t))))
+    /* Allocate and initialize task struct */
+    if(AXE_task_init(engine, task, op, op_data, free_op_data) != AXE_SUCCEED)
         ERROR;
 
-    /* Initialize malloc'd fields to NULL, so they are not freed if something
-     * goes wrong */
-    (*task)->necessary_parents = NULL;
-    (*task)->sufficient_parents = NULL;
-
-    /*
-     * Initialize fields
-     */
-    (*task)->op = op;
-    (*task)->num_necessary_parents = num_necessary_parents;
+    /* Copy necessary and sufficient parent arrays */
     if(num_necessary_parents) {
         if(NULL == ((*task)->necessary_parents = (AXE_task_int_t **)malloc(num_necessary_parents * sizeof(AXE_task_int_t *))))
             ERROR;
         (void)memcpy((*task)->necessary_parents, necessary_parents, num_necessary_parents * sizeof(AXE_task_int_t *));
     } /* end if */
-    (*task)->num_sufficient_parents = num_sufficient_parents;
+    (*task)->num_necessary_parents = num_necessary_parents;
     if(num_sufficient_parents) {
         if(NULL == ((*task)->sufficient_parents = (AXE_task_int_t **)malloc(num_sufficient_parents * sizeof(AXE_task_int_t *))))
             ERROR;
         (void)memcpy((*task)->sufficient_parents, sufficient_parents, num_sufficient_parents * sizeof(AXE_task_int_t *));
     } /* end if */
-    (*task)->op_data = op_data;
-    OPA_Queue_header_init(&(*task)->scheduled_queue_hdr);
-    (*task)->engine = engine;
-    (*task)->free_op_data = free_op_data;
-    if(0 != pthread_mutex_init(&(*task)->task_mutex, NULL))
-        ERROR;
-    is_task_mutex_init = TRUE;
-    if(0 != pthread_cond_init(&(*task)->wait_cond, NULL))
-        ERROR;
-    is_wait_cond_init = TRUE;
-    if(0 != pthread_mutex_init(&(*task)->wait_mutex, NULL))
-        ERROR;
-    is_wait_mutex_init = TRUE;
-    OPA_store_int(&(*task)->status, (int)AXE_WAITING_FOR_PARENT);
-
-    /* Initialize reference count to 1.  The caller of this function is
-     * responsible for decrementing the reference count when it is done with the
-     * reference this function returns. */
-    OPA_store_int(&(*task)->rc, 1);
+    (*task)->num_sufficient_parents = num_sufficient_parents;
 
     /* Check if the sufficient condition is already complete, due to the task
      * having no sufficient parents */
     OPA_store_int(&(*task)->sufficient_complete, (int)(num_sufficient_parents == 0));
 
-    /* num_necessary_complete includes one for sufficient_complete */
+    /* Initialize num_necessary_complete - includes one for sufficient_complete
+     */
     OPA_store_int(&(*task)->num_conditions_complete, OPA_load_int(&(*task)->sufficient_complete));
-    (*task)->num_necessary_children = 0;
-    (*task)->necessary_children_nalloc = 0;
-    (*task)->necessary_children = NULL;
-    (*task)->num_sufficient_children = 0;
-    (*task)->sufficient_children_nalloc = 0;
-    (*task)->sufficient_children = NULL;
-
-    /* AXE_schedule_add will initialize task_list_next and task_list_prev */
 
     /* Add task to schedule */
     if(AXE_schedule_add(*task) != AXE_SUCCEED)
@@ -137,20 +108,8 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
 
 done:
     if(ret_value == AXE_FAIL)
-        if(*task) {
-            if((*task)->necessary_parents)
-                free((*task)->necessary_parents);
-            if((*task)->sufficient_parents)
-                free((*task)->sufficient_parents);
-            if(is_task_mutex_init)
-                (void)pthread_mutex_destroy(&(*task)->task_mutex);
-            if(is_wait_cond_init)
-                (void)pthread_cond_destroy(&(*task)->wait_cond);
-            if(is_wait_mutex_init)
-                (void)pthread_mutex_destroy(&(*task)->wait_mutex);
-            free(*task);
-            *task = NULL;
-        } /* end if */
+        if(*task)
+            AXE_task_decr_ref(*task);
 
     return ret_value;
 } /* end AXE_task_create() */
@@ -280,33 +239,70 @@ done:
 AXE_error_t
 AXE_task_wait(AXE_task_int_t *task)
 {
+    _Bool is_mutex_locked = TRUE;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
 
-    /* Lock wait mutex.  Do so before checking the status so we know that
+    /* Lock task mutex.  Do so before checking the status so we know that
      * (together with the similar mutex in AXE_schedule_finish()) if the status
      * is not AXE_TASK_DONE that we will be woken up from pthread_cond_wait()
      * when the task is complete, i.e. the signal will not be sent before this
      * thread begins waiting. */
-    if(0 != pthread_mutex_lock(&task->wait_mutex))
+    if(0 != pthread_mutex_lock(&task->task_mutex))
         ERROR;
+    is_mutex_locked = TRUE;
 
-    /* Check if the task is already complete */
-    if((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_DONE)
+    /* Check if the task is already complete (or canceled) */
+    if(((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_DONE)
+            || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED))
         /* Wait for signal */
-        if(0 != pthread_cond_wait(&task->wait_cond, &task->wait_mutex))
+        if(0 != pthread_cond_wait(&task->wait_cond, &task->task_mutex))
             ERROR;
 
-    /* Unlock wait mutex */
-    if(0 != pthread_mutex_unlock(&task->wait_mutex))
+    if((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_DONE) {
+        assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED);
         ERROR;
-
-    assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE);
+    } /* end if */
 
 done:
+    /* Unlock wait mutex */
+    if(is_mutex_locked && (0 != pthread_mutex_unlock(&task->task_mutex)))
+        ERROR;
+
     return ret_value;
 } /* end AXE_task_wait() */
+
+
+AXE_error_t
+AXE_task_cancel_leaf(AXE_task_int_t *task, AXE_remove_status_t *remove_status)
+{
+    _Bool is_mutex_locked = TRUE;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(task);
+
+    /* Lock task mutex */
+    if(0 != pthread_mutex_lock(&task->task_mutex))
+        ERROR;
+    is_mutex_locked = TRUE;
+
+    /* Make sure the task does not have any children */
+    if((task->num_necessary_children != 0 )
+            || (task->num_sufficient_children != 0))
+        ERROR;
+
+    /* Cancel the task if it is not running, complete, or already canceled */
+    if(AXE_schedule_cancel(task, remove_status, TRUE) != AXE_SUCCEED)
+        ERROR;
+
+done:
+    /* Unlock task mutex */
+    if(is_mutex_locked && (0 != pthread_mutex_unlock(&task->task_mutex)))
+        ret_value = AXE_FAIL;
+
+    return ret_value;
+} /* end AXE_task_cancel_leaf() */
 
 
 AXE_error_t
@@ -324,7 +320,7 @@ AXE_task_free(AXE_task_int_t *task)
     /* Remove from task list, if in list (might not be in list because the
      * schedule is being freed) */
     if(task->task_list_next)
-        if(AXE_schedule_remove_task(task) != AXE_SUCCEED)
+        if(AXE_schedule_remove_from_list(task) != AXE_SUCCEED)
             ERROR;
 
     /* Free fields */
@@ -336,7 +332,6 @@ AXE_task_free(AXE_task_int_t *task)
         (task->free_op_data)(task->op_data);
     (void)pthread_mutex_destroy(&task->task_mutex);
     (void)pthread_cond_destroy(&task->wait_cond);
-    (void)pthread_mutex_destroy(&task->wait_mutex);
     if(task->necessary_children)
         free(task->necessary_children);
     if(task->sufficient_children)
@@ -348,4 +343,71 @@ AXE_task_free(AXE_task_int_t *task)
 done:
     return ret_value;
 } /* end AXE_task_free */
+
+
+static AXE_error_t
+AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
+    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
+{
+    _Bool is_task_mutex_init = FALSE;
+    _Bool is_wait_cond_init = FALSE;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(engine);
+    assert(task);
+
+    *task = NULL;
+
+    /* Allocate task struct */
+    if(NULL == (*task = (AXE_task_int_t *)malloc(sizeof(AXE_task_int_t))))
+        ERROR;
+
+    /*
+     * Initialize fields
+     */
+    (*task)->op = op;
+    (*task)->num_necessary_parents = 0;
+    (*task)->necessary_parents = NULL;
+    (*task)->num_sufficient_parents = 0;
+    (*task)->sufficient_parents = NULL;
+    (*task)->op_data = op_data;
+    OPA_Queue_header_init(&(*task)->scheduled_queue_hdr);
+    (*task)->engine = engine;
+    (*task)->free_op_data = free_op_data;
+    if(0 != pthread_mutex_init(&(*task)->task_mutex, NULL))
+        ERROR;
+    is_task_mutex_init = TRUE;
+    if(0 != pthread_cond_init(&(*task)->wait_cond, NULL))
+        ERROR;
+    is_wait_cond_init = TRUE;
+    OPA_store_int(&(*task)->status, (int)AXE_WAITING_FOR_PARENT);
+
+    /* Initialize reference count to 1.  The caller of this function is
+     * responsible for decrementing the reference count when it is done with the
+     * reference this function returns. */
+    OPA_store_int(&(*task)->rc, 1);
+
+    /* Caller will initialize sufficient_complete and num_conditions_complete */
+    (*task)->num_necessary_children = 0;
+    (*task)->necessary_children_nalloc = 0;
+    (*task)->necessary_children = NULL;
+    (*task)->num_sufficient_children = 0;
+    (*task)->sufficient_children_nalloc = 0;
+    (*task)->sufficient_children = NULL;
+
+    /* Schedule package will initialize task_list_next and task_list_prev */
+
+done:
+    if(ret_value == AXE_FAIL)
+        if(*task) {
+            if(is_task_mutex_init)
+                (void)pthread_mutex_destroy(&(*task)->task_mutex);
+            if(is_wait_cond_init)
+                (void)pthread_cond_destroy(&(*task)->wait_cond);
+            free(*task);
+            *task = NULL;
+        } /* end if */
+
+    return ret_value;
+} /* end AXE_task_init() */
 

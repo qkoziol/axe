@@ -44,7 +44,6 @@ struct AXE_task_int_t {
     AXE_task_free_op_data_t free_op_data;
     pthread_mutex_t         task_mutex;
     pthread_cond_t          wait_cond;
-    pthread_mutex_t         wait_mutex;
     OPA_int_t               status;
     OPA_int_t               rc;
     OPA_int_t               sufficient_complete;
@@ -74,6 +73,8 @@ void AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/);
 void AXE_task_get_status(AXE_task_int_t *task, AXE_status_t *status/*out*/);
 AXE_error_t AXE_task_worker(void *_task);
 AXE_error_t AXE_task_wait(AXE_task_int_t *task);
+AXE_error_t AXE_task_cancel_leaf(AXE_task_int_t *task,
+    AXE_remove_status_t *remove_status);
 AXE_error_t AXE_task_free(AXE_task_int_t *task);
 
 
