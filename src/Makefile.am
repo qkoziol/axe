@@ -1,4 +1,4 @@
-AM_CFLAGS = -Wall -g -fno-strict-aliasing
+AM_CFLAGS = -Wall
 
 # Set the soversion number for the shared library
 libaxe_la_LDFLAGS = -version-info 1:0:0

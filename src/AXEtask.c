@@ -115,6 +115,39 @@ done:
 } /* end AXE_task_create() */
 
 
+AXE_error_t
+AXE_task_create_barrier(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
+    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(engine);
+    assert(task);
+
+    *task = NULL;
+
+    /* Allocate and initialize task struct */
+    if(AXE_task_init(engine, task, op, op_data, free_op_data) != AXE_SUCCEED)
+        ERROR;
+
+    /* Initialize sufficient_complete to TRUE and num_conditions_complete to 1,
+     * as barrier tasks never have sufficient parents */
+    OPA_store_int(&(*task)->sufficient_complete, TRUE);
+    OPA_store_int(&(*task)->num_conditions_complete, 1);
+
+    /* Add barrier task to schedule */
+    if(AXE_schedule_add_barrier(*task) != AXE_SUCCEED)
+        ERROR;
+
+done:
+    if(ret_value == AXE_FAIL)
+        if(*task)
+            AXE_task_decr_ref(*task);
+
+    return ret_value;
+} /* end AXE_task_create_barrier() */
+
+
 void
 AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/)
 {

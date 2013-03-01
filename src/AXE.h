@@ -61,6 +61,8 @@ AXE_error_t AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data);
+AXE_error_t AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data);
 AXE_error_t AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status);
 AXE_error_t AXEremove_all(AXE_engine_t engine,
     AXE_remove_status_t *remove_status);

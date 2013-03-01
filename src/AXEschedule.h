@@ -32,6 +32,7 @@ AXE_error_t AXE_schedule_create(size_t num_threads,
     AXE_schedule_t **schedule/*out*/);
 void AXE_schedule_worker_running(AXE_schedule_t *schedule);
 AXE_error_t AXE_schedule_add(AXE_task_int_t *task);
+AXE_error_t AXE_schedule_add_barrier(AXE_task_int_t *task);
 AXE_error_t AXE_schedule_finish(AXE_task_int_t **task/*in,out*/);
 AXE_error_t AXE_schedule_wait_all(AXE_schedule_t *schedule);
 AXE_error_t AXE_schedule_cancel(AXE_task_int_t *task,

@@ -69,6 +69,9 @@ AXE_error_t AXE_task_create(AXE_engine_int_t *engine,
     AXE_task_int_t **necessary_parents, size_t num_sufficient_parents,
     AXE_task_int_t **sufficient_parents, AXE_task_op_t op, void *op_data,
     AXE_task_free_op_data_t free_op_data);
+AXE_error_t AXE_task_create_barrier(AXE_engine_int_t *engine,
+    AXE_task_int_t **task/*out*/, AXE_task_op_t op, void *op_data,
+    AXE_task_free_op_data_t free_op_data);
 void AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/);
 void AXE_task_get_status(AXE_task_int_t *task, AXE_status_t *status/*out*/);
 AXE_error_t AXE_task_worker(void *_task);

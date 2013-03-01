@@ -106,6 +106,39 @@ done:
 } /* end AXEcreate_task() */
 
 
+AXE_error_t
+AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
+{
+    AXE_task_int_t *int_task = NULL;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!engine)
+        ERROR;
+
+    /* Create barrier task */
+    if(AXE_task_create_barrier(engine, &int_task, op, op_data, free_op_data) != AXE_SUCCEED)
+        ERROR;
+    assert(int_task);
+
+    /* If the caller requested a handle, return the pointer to the task,
+     * otherwise decrement the reference count because we will throw away our
+     * task pointer. */
+    if(task)
+        *task = int_task;
+    else {
+#ifdef AXE_DEBUG_REF
+        printf("AXEcreate_task: decr ref: %p", int_task);
+#endif /* AXE_DEBUG_REF */
+        AXE_task_decr_ref(int_task);
+    } /* end else */
+
+done:
+    return ret_value;
+} /* end AXEcreate_task() */
+
+
 /* Note for AXEremove/remove_all: Does the app still need to call AXEfinish() or
  * do these functions free the task(s)? */
 AXE_error_t

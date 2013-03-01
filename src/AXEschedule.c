@@ -39,7 +39,7 @@ struct AXE_schedule_t {
 /*
  * Local functions
  */
-static AXE_error_t AXE_schedule_add_to_list(AXE_task_int_t *task);
+static AXE_error_t AXE_schedule_add_common(AXE_task_int_t *task);
 
 
 AXE_error_t
@@ -126,7 +126,6 @@ AXE_schedule_worker_running(AXE_schedule_t *schedule)
 AXE_error_t
 AXE_schedule_add(AXE_task_int_t *task)
 {
-    AXE_schedule_t *schedule;
     AXE_task_int_t *parent_task;
     size_t i;
     AXE_error_t ret_value = AXE_SUCCEED;
@@ -135,8 +134,6 @@ AXE_schedule_add(AXE_task_int_t *task)
     assert(task->engine);
     assert((AXE_status_t)OPA_load_int(&task->status) == AXE_WAITING_FOR_PARENT);
     assert(!task->sufficient_parents == (_Bool)OPA_load_int(&task->sufficient_complete));
-
-    schedule = task->engine->schedule;
 
     /* Increment the reference count on the task due to it being placed in the
      * scheduler */
@@ -176,26 +173,18 @@ AXE_schedule_add(AXE_task_int_t *task)
         else if((AXE_status_t)OPA_load_int(&parent_task->status) == AXE_TASK_CANCELED) {
             /* Parent is canceled.  If this happens, return an error but keep
              * this task present and mark it canceled so things get cleaned up
-             * properly */
+             * properly. */
             OPA_store_int(&task->status, (int)AXE_TASK_CANCELED);
 
-            /* Unlock parent task mutex */
-            (void)pthread_mutex_unlock(&parent_task->task_mutex);
+            /* Increment the number of conditions complete to account for this
+             * parent not having this task in its child list.  Since it is
+             * canceled, it does not matter if this task is processed earlier
+             * than the application might expect. */
+            OPA_incr_int(&task->num_conditions_complete);
 
-            /* Add to task list */
-            (void)AXE_schedule_add_to_list(task);
-
-            ERROR;
+            ret_value = AXE_FAIL;
         } /* end if */
         else {
-            /* Increment reference count on child task, so child does not get freed
-             * before necessary parent finishes.  This could only happen if the
-             * child gets cancelled/removed. */
-#ifdef AXE_DEBUG_REF
-            printf("AXE_schedule_add: incr ref: %p from nec_par", task);
-#endif /* AXE_DEBUG_REF */
-            AXE_task_incr_ref(task);
-
             /* Add this task to parent's child task list */
             if(parent_task->num_necessary_children
                     == parent_task->necessary_children_nalloc) {
@@ -216,8 +205,16 @@ AXE_schedule_add(AXE_task_int_t *task)
                     } /* end if */
                     parent_task->necessary_children_nalloc = AXE_TASK_NCHILDREN_INIT;
                 } /* end else */
-            } /* end else */
+            } /* end if */
             assert(parent_task->necessary_children_nalloc > parent_task->num_necessary_children);
+
+            /* Increment reference count on child task, so child does not get freed
+             * before necessary parent finishes.  This could only happen if the
+             * child gets cancelled/removed. */
+#ifdef AXE_DEBUG_REF
+            printf("AXE_schedule_add: incr ref: %p from nec_par", task);
+#endif /* AXE_DEBUG_REF */
+            AXE_task_incr_ref(task);
 
             /* Add to list */
             parent_task->necessary_children[parent_task->num_necessary_children] = task;
@@ -249,33 +246,25 @@ AXE_schedule_add(AXE_task_int_t *task)
         if((AXE_status_t)OPA_load_int(&parent_task->status) == AXE_TASK_DONE) {
             /* Parent is complete, mark sufficient condition as fulfilled if it
              * was not previously and adjust num_necessary_complete */
-            if(!OPA_load_int(&task->sufficient_complete)) {
-                OPA_store_int(&task->sufficient_complete, TRUE);
+            if(OPA_swap_int(&task->sufficient_complete, TRUE) == FALSE)
                 OPA_incr_int(&task->num_conditions_complete);
-            } /* end if */
         } /* end if */
         else if((AXE_status_t)OPA_load_int(&parent_task->status) == AXE_TASK_CANCELED) {
             /* Parent is canceled.  If this happens, return an error but keep
              * this task present and mark it canceled so things get cleaned up
-             * properly */
+             * properly. */
             OPA_store_int(&task->status, (int)AXE_TASK_CANCELED);
 
-            /* Unlock parent task mutex */
-            (void)pthread_mutex_unlock(&parent_task->task_mutex);
+            /* Consider the sufficient condition complete to account for this
+             * parent not having this task in its child list.  Since it is
+             * canceled, it does not matter if this task is processed earlier
+             * than the application might expect. */
+            if(OPA_swap_int(&task->sufficient_complete, TRUE) == FALSE)
+                OPA_incr_int(&task->num_conditions_complete);
 
-            /* Add to task list */
-            (void)AXE_schedule_add_to_list(task);
-
-            ERROR;
+            ret_value = AXE_FAIL;
         } /* end if */
         else {
-            /* Increment reference count on child task, so child does not get freed
-             * before sufficient parent finishes */
-#ifdef AXE_DEBUG_REF
-            printf("AXE_schedule_add: incr ref: %p from suf_par", task);
-#endif /* AXE_DEBUG_REF */
-            AXE_task_incr_ref(task);
-
             /* Add this task to parent's child task list */
             if(parent_task->num_sufficient_children
                     == parent_task->sufficient_children_nalloc) {
@@ -296,8 +285,15 @@ AXE_schedule_add(AXE_task_int_t *task)
                     } /* end if */
                     parent_task->sufficient_children_nalloc = AXE_TASK_NCHILDREN_INIT;
                 } /* end else */
-            } /* end else */
+            } /* end if */
             assert(parent_task->sufficient_children_nalloc > parent_task->num_sufficient_children);
+
+            /* Increment reference count on child task, so child does not get freed
+             * before sufficient parent finishes */
+#ifdef AXE_DEBUG_REF
+            printf("AXE_schedule_add: incr ref: %p from suf_par", task);
+#endif /* AXE_DEBUG_REF */
+            AXE_task_incr_ref(task);
 
             /* Add to list */
             parent_task->sufficient_children[parent_task->num_sufficient_children] = task;
@@ -315,129 +311,159 @@ AXE_schedule_add(AXE_task_int_t *task)
     printf("AXE_schedule_add: added %p\n", task); fflush(stdout);
 #endif /* AXE_DEBUG */
 
-    /* Increment the number of tasks, and set all_tasks_done to FALSE if this
-     * was the first task */
-    if(OPA_fetch_and_incr_int(&schedule->num_tasks) == 0)
-        OPA_store_int(&schedule->all_tasks_done, FALSE);
-
-    /* Add task to task list */
-    if(AXE_schedule_add_to_list(task) != AXE_SUCCEED)
+    /* Finish adding the task to the schedule */
+    if(AXE_schedule_add_common(task) != AXE_SUCCEED)
         ERROR;
-
-    /* Increment num_conditions_complete to account for initialization being
-     * complete. Schedule the event if all necessary parents and at least one
-     * sufficient parent are complete. */
-    if((size_t)OPA_fetch_and_incr_int(&task->num_conditions_complete)
-                == task->num_necessary_parents + 1) {
-        AXE_thread_t *thread = NULL;
-        AXE_task_int_t *exec_task = NULL;
-
-        /* The fetch-and-incr should guarantee (along with similar constructions
-         * in AXE_schedule_finish) that only one thread ever sees the last
-         * condition fulfilled, however it is still possible (though unlikely)
-         * for another thread to have canceled this task by now, so do a compare
-         * -and-swap to preserve the canceled status in this case */
-        (void)OPA_cas_int(&task->status, (int)AXE_WAITING_FOR_PARENT, (int)AXE_TASK_SCHEDULED);
-
-        assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_SCHEDULED) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED));
-
-        /* Write barrier so we know that all changes to the task struct are
-         * visible before we enqueue this task and subject it to being picked up
-         * by a worker thread.  This is not necessary if this task is not
-         * scheduled because the only ways this task could be reached again
-         * involve taking mutexes (either through this function or
-         * AXE_schedule_finish()). */
-        OPA_write_barrier();
-
-#ifdef AXE_DEBUG
-        printf("AXE_schedule_add: enqueue %p\n", task); fflush(stdout);
-#endif /* AXE_DEBUG */
-
-        /* Add task to scheduled queue */
-        OPA_Queue_enqueue(&schedule->scheduled_queue, task, AXE_task_int_t, scheduled_queue_hdr);
-
-        /*
-         * Now try to execute the event
-         */
-        /* Note that we only try to take one task from the queue in this
-         * function because we only pushed one onto the queue.  If there is more
-         * than one task in the queue, then either the thread pool is full or
-         * there is another thread scheduling tasks which will execute at least
-         * as many as it pushes.  In either case there is no need to pull more
-         * than one thread. */
-        /* To prevent the race condition where a worker threads are past past
-         * the point where they look for tasks but have not yet been released to
-         * the thread pool, delaying or preventing execution of this task, loop
-         * until we either get a thread or get confirmation that all threads are
-         * busy and will attempt to acquire a task when they complete */
-        do {
-            /* Try to retrieve a thread from the thread pool */
-            if(AXE_thread_pool_try_acquire(task->engine->thread_pool, &thread) != AXE_SUCCEED)
-                ERROR;
-
-            /* If we have a thread we can exit */
-            if(thread)
-                break;
-
-            /* Read barrier so the check on sleeping_threads happens after
-             * the failed acquire */
-            OPA_read_barrier();
-
-            /* Check if all workers are busy and guaranteed to check the
-             * schedule before sleeping */
-            if(OPA_load_int(&schedule->sleeping_workers) == 0)
-                /* All workers are busy and the first one to finish will pick up
-                 * this task.  We can go ahead and return */
-                break;
-            else
-                /* The queue was empty but at least one worker was possibly soon
-                 * to be finished.  Give the finishing workers a chance to
-                 * finish */
-                AXE_YIELD();
-        } while(1);
-
-        /* Check if we were able to acquire a thread */
-        if(thread) {
-            /* Now retrieve a task from the scheduled task queue */
-            /* Lock scheduled queue mutex.  This mutex must be released
-             * immediately after the dequeue. */
-            if(0 != pthread_mutex_lock(&schedule->scheduled_queue_mutex))
-                ERROR;
-
-            /* Check if queue is empty */
-            if(OPA_Queue_is_empty(&schedule->scheduled_queue)) {
-                /* Unlock scheduled queue mutex */
-                if(0 != pthread_mutex_unlock(&schedule->scheduled_queue_mutex))
-                    ERROR;
-
-                /* Release thread back to thread pool */
-                AXE_thread_pool_release(thread);
-                thread = NULL;
-            } /* end if */
-            else {
-                /* Retrieve task from scheduled queue */
-                OPA_Queue_dequeue(&schedule->scheduled_queue, exec_task, AXE_task_int_t, scheduled_queue_hdr);
-
-#ifdef AXE_DEBUG
-printf("AXE_schedule_add: dequeue %p\n", exec_task); fflush(stdout);
-#endif /* AXE_DEBUG */
-
-                /* Unlock scheduled queue mutex */
-                if(0 != pthread_mutex_unlock(&schedule->scheduled_queue_mutex))
-                    ERROR;
-
-                assert(exec_task);
-
-                /* Launch the task */
-                if(AXE_thread_pool_launch(thread, AXE_task_worker, exec_task) != AXE_SUCCEED)
-                    ERROR;
-            } /* end else */
-        } /* end if */
-    } /* end if */
 
 done:
     return ret_value;
 } /* end AXE_schedule_add() */
+
+
+AXE_error_t
+AXE_schedule_add_barrier(AXE_task_int_t *task)
+{
+    AXE_task_int_t *parent_task;
+    AXE_status_t parent_status;
+    AXE_schedule_t *schedule;
+    size_t necessary_parents_nalloc = 0;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(task);
+    assert(task->engine);
+    assert((AXE_status_t)OPA_load_int(&task->status) == AXE_WAITING_FOR_PARENT);
+    assert(task->num_sufficient_parents == 0);
+    assert(!task->sufficient_parents);
+    assert(OPA_load_int(&task->sufficient_complete) == TRUE);
+
+    schedule = task->engine->schedule;
+
+    /* Increment the reference count on the task due to it being placed in the
+     * scheduler */
+#ifdef AXE_DEBUG_REF
+    printf("AXE_schedule_add: incr ref: %p", task);
+#endif /* AXE_DEBUG_REF */
+    AXE_task_incr_ref(task);
+
+    /* Note that a write barrier is only not necessary here because other
+     * threads can only reach this task if this thread takes a mutex, implying a
+     * barrier.  If we ever remove the mutex we will need a write barrier before
+     * this task is added to a child array. */
+
+    /* Acquire task list mutex.  We take task mutexes while holding this one.
+     * the task list mutex must never (anywhere) be taken while holding a task
+     * mutex. */
+    if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
+        ERROR;
+
+    /* Iterate over all tasks in the scheduler, checking if they should be
+     * parents of the barrier task */
+    for(parent_task = schedule->task_list_head.task_list_next;
+            parent_task != &schedule->task_list_tail;
+            parent_task = parent_task->task_list_next) {
+        /* Acquire parent task mutex */
+        if(0 != pthread_mutex_lock(&parent_task->task_mutex))
+            ERROR;
+
+        /* Load parent task status */
+        parent_status = OPA_load_int(&parent_task->status);
+
+        /* If the task is not canceled or done, and it has no necessary
+         * children, add it as a parent of the barrier task.  Okay for checks of
+         * these conditions to not be atomic (except load of status), because
+         * changing status to done or canceled and modifying or iterating over
+         * child arrays occurs while holding the task mutex. */
+        if((parent_status != AXE_TASK_DONE)
+                && (parent_status != AXE_TASK_CANCELED)
+                && (parent_task->num_necessary_children == 0)) {
+            /* Add barrier task to parent's child task list */
+            if(parent_task->num_necessary_children
+                    == parent_task->necessary_children_nalloc) {
+                /* Grow/alloc array */
+                if(parent_task->necessary_children_nalloc) {
+                    assert(parent_task->necessary_children);
+                    if(NULL == (parent_task->necessary_children = (AXE_task_int_t **)realloc(parent_task->necessary_children, 2 * parent_task->necessary_children_nalloc * sizeof(AXE_task_int_t *)))) {
+                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
+                        ERROR;
+                    } /* end if */
+                    parent_task->necessary_children_nalloc *= 2;
+                } /* end if */
+                else {
+                    assert(!parent_task->necessary_children);
+                    if(NULL == (parent_task->necessary_children = (AXE_task_int_t **)malloc(AXE_TASK_NCHILDREN_INIT * sizeof(AXE_task_int_t *)))) {
+                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
+                        ERROR;
+                    } /* end if */
+                    parent_task->necessary_children_nalloc = AXE_TASK_NCHILDREN_INIT;
+                } /* end else */
+            } /* end if */
+            assert(parent_task->necessary_children_nalloc > parent_task->num_necessary_children);
+
+            /* Increment reference count on barrier task, so it does not get
+             * freed before necessary parent finishes.  This could only happen
+             * if the child gets cancelled/removed. */
+#ifdef AXE_DEBUG_REF
+            printf("AXE_schedule_add_barrier: incr ref: %p from nec_par", task);
+#endif /* AXE_DEBUG_REF */
+            AXE_task_incr_ref(task);
+
+            /* Add to list */
+            parent_task->necessary_children[parent_task->num_necessary_children] = task;
+            parent_task->num_necessary_children++;
+
+            /* Add parent task to barrier's necessary parent task list */
+            if(task->num_necessary_parents == necessary_parents_nalloc) {
+                /* Grow/alloc array */
+                if(necessary_parents_nalloc) {
+                    assert(task->necessary_parents);
+                    if(NULL == (task->necessary_parents = (AXE_task_int_t **)realloc(task->necessary_parents, 2 * necessary_parents_nalloc * sizeof(AXE_task_int_t *)))) {
+                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
+                        ERROR;
+                    } /* end if */
+                    necessary_parents_nalloc *= 2;
+                } /* end if */
+                else {
+                    assert(!task->necessary_parents);
+                    if(NULL == (task->necessary_parents = (AXE_task_int_t **)malloc(AXE_TASK_NCHILDREN_INIT * sizeof(AXE_task_int_t *)))) {
+                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
+                        ERROR;
+                    } /* end if */
+                    necessary_parents_nalloc = AXE_TASK_NCHILDREN_INIT;
+                } /* end else */
+            } /* end if */
+            assert(necessary_parents_nalloc > task->num_necessary_parents);
+
+            /* Increment reference count on parent task */
+#ifdef AXE_DEBUG_REF
+            printf("AXE_schedule_add_barrier: incr ref: %p nec_par", parent_task);
+#endif /* AXE_DEBUG_REF */
+            AXE_task_incr_ref(parent_task);
+
+            /* Add to list */
+            task->necessary_parents[task->num_necessary_parents] = parent_task;
+            task->num_necessary_parents++;
+        } /* end if */
+
+        /* Release parent task mutex */
+        if(0 != pthread_mutex_unlock(&parent_task->task_mutex))
+            ERROR;
+    } /* end for */
+
+    /* Release task list mutex */
+    if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
+        ERROR;
+
+    /* Finish adding the task to the schedule */
+    if(AXE_schedule_add_common(task) != AXE_SUCCEED)
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXE_schedule_add_barrier() */
 
 
 AXE_error_t
@@ -891,17 +917,23 @@ done:
 } /* end AXE_schedule_free() */
 
 
-/* The caller must not hold any task mutexes when calling this function! */
 static AXE_error_t
-AXE_schedule_add_to_list(AXE_task_int_t *task)
+AXE_schedule_add_common(AXE_task_int_t *task)
 {
     AXE_schedule_t *schedule;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
+    assert(task->engine);
 
     schedule = task->engine->schedule;
 
+    /* Increment the number of tasks, and set all_tasks_done to FALSE if this
+     * was the first task */
+    if(OPA_fetch_and_incr_int(&schedule->num_tasks) == 0)
+        OPA_store_int(&schedule->all_tasks_done, FALSE);
+
+    /* Add task to task list */
     /* Lock task list mutex */
     if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
         ERROR;
@@ -918,7 +950,118 @@ AXE_schedule_add_to_list(AXE_task_int_t *task)
     if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
         ERROR;
 
+    /* Increment num_conditions_complete to account for initialization being
+     * complete. Schedule the event if all necessary parents and at least one
+     * sufficient parent are complete. */
+    if((size_t)OPA_fetch_and_incr_int(&task->num_conditions_complete)
+                == task->num_necessary_parents + 1) {
+        AXE_thread_t *thread = NULL;
+        AXE_task_int_t *exec_task = NULL;
+
+        /* The fetch-and-incr should guarantee (along with similar constructions
+         * in AXE_schedule_finish) that only one thread ever sees the last
+         * condition fulfilled, however it is still possible (though unlikely)
+         * for another thread to have canceled this task by now, so do a compare
+         * -and-swap to preserve the canceled status in this case */
+        (void)OPA_cas_int(&task->status, (int)AXE_WAITING_FOR_PARENT, (int)AXE_TASK_SCHEDULED);
+
+        assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_SCHEDULED) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED));
+
+        /* Write barrier so we know that all changes to the task struct are
+         * visible before we enqueue this task and subject it to being picked up
+         * by a worker thread.  This is not necessary if this task is not
+         * scheduled because the only ways this task could be reached again
+         * involve taking mutexes (either through this function or
+         * AXE_schedule_finish()). */
+        OPA_write_barrier();
+
+#ifdef AXE_DEBUG
+        printf("AXE_schedule_add: enqueue %p\n", task); fflush(stdout);
+#endif /* AXE_DEBUG */
+
+        /* Add task to scheduled queue */
+        OPA_Queue_enqueue(&schedule->scheduled_queue, task, AXE_task_int_t, scheduled_queue_hdr);
+
+        /*
+         * Now try to execute the event
+         */
+        /* Note that we only try to take one task from the queue in this
+         * function because we only pushed one onto the queue.  If there is more
+         * than one task in the queue, then either the thread pool is full or
+         * there is another thread scheduling tasks which will execute at least
+         * as many as it pushes.  In either case there is no need to pull more
+         * than one thread. */
+        /* To prevent the race condition where a worker threads are past past
+         * the point where they look for tasks but have not yet been released to
+         * the thread pool, delaying or preventing execution of this task, loop
+         * until we either get a thread or get confirmation that all threads are
+         * busy and will attempt to acquire a task when they complete */
+        do {
+            /* Try to retrieve a thread from the thread pool */
+            if(AXE_thread_pool_try_acquire(task->engine->thread_pool, &thread) != AXE_SUCCEED)
+                ERROR;
+
+            /* If we have a thread we can exit */
+            if(thread)
+                break;
+
+            /* Read barrier so the check on sleeping_threads happens after
+             * the failed acquire */
+            OPA_read_barrier();
+
+            /* Check if all workers are busy and guaranteed to check the
+             * schedule before sleeping */
+            if(OPA_load_int(&schedule->sleeping_workers) == 0)
+                /* All workers are busy and the first one to finish will pick up
+                 * this task.  We can go ahead and return */
+                break;
+            else
+                /* The queue was empty but at least one worker was possibly soon
+                 * to be finished.  Give the finishing workers a chance to
+                 * finish */
+                AXE_YIELD();
+        } while(1);
+
+        /* Check if we were able to acquire a thread */
+        if(thread) {
+            /* Now retrieve a task from the scheduled task queue */
+            /* Lock scheduled queue mutex.  This mutex must be released
+             * immediately after the dequeue. */
+            if(0 != pthread_mutex_lock(&schedule->scheduled_queue_mutex))
+                ERROR;
+
+            /* Check if queue is empty */
+            if(OPA_Queue_is_empty(&schedule->scheduled_queue)) {
+                /* Unlock scheduled queue mutex */
+                if(0 != pthread_mutex_unlock(&schedule->scheduled_queue_mutex))
+                    ERROR;
+
+                /* Release thread back to thread pool */
+                AXE_thread_pool_release(thread);
+                thread = NULL;
+            } /* end if */
+            else {
+                /* Retrieve task from scheduled queue */
+                OPA_Queue_dequeue(&schedule->scheduled_queue, exec_task, AXE_task_int_t, scheduled_queue_hdr);
+
+#ifdef AXE_DEBUG
+printf("AXE_schedule_add: dequeue %p\n", exec_task); fflush(stdout);
+#endif /* AXE_DEBUG */
+
+                /* Unlock scheduled queue mutex */
+                if(0 != pthread_mutex_unlock(&schedule->scheduled_queue_mutex))
+                    ERROR;
+
+                assert(exec_task);
+
+                /* Launch the task */
+                if(AXE_thread_pool_launch(thread, AXE_task_worker, exec_task) != AXE_SUCCEED)
+                    ERROR;
+            } /* end else */
+        } /* end if */
+    } /* end if */
+
 done:
     return ret_value;
-} /* end AXE_schedule_add_to_list() */
+} /* end AXE_schedule_add_common() */
 

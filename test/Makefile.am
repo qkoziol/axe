@@ -1,3 +1,5 @@
+AM_CFLAGS = -Wall
+
 TESTS = test_all
 
 check_PROGRAMS = $(TESTS)
