@@ -472,6 +472,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
     AXE_task_int_t *child_task;
     AXE_schedule_t *schedule;
     AXE_thread_t *thread;
+    AXE_status_t prev_status;
     size_t i;
     AXE_error_t ret_value = AXE_SUCCEED;
 
@@ -484,6 +485,14 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
      * No other mutexes will be acquired while we hold this one. */
     if(0 != pthread_mutex_lock(&(*task)->task_mutex))
         ERROR;
+        
+    /* Mark as done, but only if it was not canceled.  Cache the previous status
+     * so we know whether or not to send signals later. */
+    prev_status = (AXE_status_t)OPA_cas_int(&(*task)->status, (int)AXE_TASK_RUNNING, (int)AXE_TASK_DONE);
+#ifdef AXE_DEBUG
+    if(prev_status == AXE_TASK_RUNNING)
+        printf("AXE_schedule_finish: %p->status = AXE_TASK_DONE\n", *task); fflush(stdout);
+#endif /* AXE_DEBUG */
 
     /* Update all necessary children */
     for(i = 0; i < (*task)->num_necessary_children; i++) {
@@ -579,15 +588,10 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
      * simpler/more obvious implementation below.  A similar note applies to the
      * wait_all implementation as well.  -NAF */
 
-    /* Mark as done, but only if it was not canceled.  Only send signals to
-     * waiting threads if it was not canceled (if it was canceled then the
-     * signals were already sent) */
-    if((AXE_status_t)OPA_cas_int(&(*task)->status, (int)AXE_TASK_RUNNING,
-            (int)AXE_TASK_DONE) == AXE_TASK_RUNNING) {
-#ifdef AXE_DEBUG
-    printf("AXE_schedule_finish: %p->status = AXE_TASK_DONE\n", *task); fflush(stdout);
-#endif /* AXE_DEBUG */
-
+    /* Send signals to threads waiting on this thread to complete (and possibly
+     * those waiting on al threads), but only if it was not previously canceled
+     * (if it was canceled then the signals were already sent). */
+    if(prev_status == AXE_TASK_RUNNING) {
         /* Signal threads waiting on this task to complete */
         if(0 != pthread_cond_broadcast(&(*task)->wait_cond))
             ERROR;

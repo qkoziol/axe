@@ -242,8 +242,13 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
         if(0 != pthread_mutex_lock(&thread->thread_mutex))
             ERROR;
 
-        assert(thread->thread_op == NULL);
-        assert(thread->thread_op_data == NULL);
+        /* It is possible for these to not be NULL if a thread attempting to
+         * launch this thread acquired the mutex first and then this thread
+         * acquired it before the worker.  Since we are shutting down, there
+         * is no harm in overriding the attempted launch of the (canceled)
+         * task with a shutdown request. */
+        thread->thread_op = NULL;
+        thread->thread_op_data = NULL;
 
         /* Send condition signal to wake up thread.  Because thread_op is NULL,
          * the thread will terminate.  The thread will release its own
