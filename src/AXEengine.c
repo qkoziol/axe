@@ -27,8 +27,8 @@ static void AXE_init(void);
 /*
  * Local variables
  */
-pthread_once_t AXE_init_once_g = PTHREAD_ONCE_INIT;
-AXE_error_t AXE_init_status_g = AXE_SUCCEED;
+static pthread_once_t AXE_init_once_g = PTHREAD_ONCE_INIT;
+static AXE_error_t AXE_init_status_g = AXE_SUCCEED;
 
 
 AXE_error_t

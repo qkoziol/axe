@@ -305,7 +305,7 @@ AXE_schedule_add(AXE_task_int_t *task)
             ERROR;
     } /* end for */
 
-    assert((size_t)OPA_load_int(&task->num_conditions_complete) <= task->num_necessary_parents + 1);
+    assert(((size_t)OPA_load_int(&task->num_conditions_complete) <= task->num_necessary_parents + 1) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED));
 
 #ifdef AXE_DEBUG
     printf("AXE_schedule_add: added %p\n", task); fflush(stdout);
@@ -498,6 +498,16 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
     for(i = 0; i < (*task)->num_necessary_children; i++) {
         child_task = (*task)->necessary_children[i];
 
+        /* If the parent task was canceled, we should cancel the child as well.
+         * Check child status before calling AXE_schedule_cancel() so we don't
+         * have to make the function call and lock the mutex if it's already
+         * canceled. */
+        if((prev_status == AXE_TASK_CANCELED)
+                && ((AXE_status_t)OPA_load_int(&child_task->status)
+                != AXE_TASK_CANCELED))
+            if(AXE_schedule_cancel(child_task, NULL, FALSE) != AXE_SUCCEED)
+                ERROR;
+
         /* Check if this was the last condition fulfilled for the child (i.e.
          * this is the last necessary parent, the sufficient condition is
          * fulfilled, and the task is initialized) */
@@ -539,7 +549,17 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 
         /* Mark the sufficient condition as complete and check if this was the
          * first sufficient parent to complete for the child */
-        if(OPA_swap_int(&child_task->sufficient_complete, TRUE) == FALSE)
+        if(OPA_swap_int(&child_task->sufficient_complete, TRUE) == FALSE) {
+            /* If the parent task was canceled, we should cancel the child as
+             * well.  Check child status before calling AXE_schedule_cancel() so
+             * we don't have to make the function call and lock the mutex if
+             * it's already canceled. */
+            if((prev_status == AXE_TASK_CANCELED)
+                    && ((AXE_status_t)OPA_load_int(&child_task->status)
+                    != AXE_TASK_CANCELED))
+                if(AXE_schedule_cancel(child_task, NULL, FALSE) != AXE_SUCCEED)
+                    ERROR;
+
             /* Increment num_conditions_complete and check if this was the last
              * condition needed  (i.e. all necessary parents were complete and
              * the initialization is complete) */
@@ -567,6 +587,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
                 /* Add task to scheduled queue */
                 OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AXE_task_int_t, scheduled_queue_hdr);
             } /* end if */
+        } /* end if */
 
         /* Decrement ref count on child */
 #ifdef AXE_DEBUG_REF

@@ -184,7 +184,6 @@ AXE_task_worker(void *_task)
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
-    assert(task->op);
 
     /* Let the scheduler know that this worker is running and will eventually
      * check the schedule for more tasks */
@@ -326,6 +325,8 @@ AXE_task_cancel_leaf(AXE_task_int_t *task, AXE_remove_status_t *remove_status)
         ERROR;
 
     /* Cancel the task if it is not running, complete, or already canceled */
+    /* AXE_schedule_cancel will unlock the mutex */
+    is_mutex_locked = FALSE;
     if(AXE_schedule_cancel(task, remove_status, TRUE) != AXE_SUCCEED)
         ERROR;
 
