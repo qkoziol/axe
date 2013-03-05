@@ -18,6 +18,12 @@
 #include "AXEtask.h"
 
 
+/*
+ * Global variables
+ */
+OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of calls to AXE_begin_try() */
+
+
 AXE_error_t
 AXEcreate_engine(size_t num_threads, AXE_engine_t *engine/*out*/)
 {
@@ -151,7 +157,7 @@ AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status)
         ERROR;
 
     /* Cancel task */
-    if(AXE_task_cancel_leaf(task, remove_status) < 0)
+    if(AXE_task_cancel_leaf(task, remove_status) != AXE_SUCCEED)
         ERROR;
 
 done:
@@ -169,7 +175,7 @@ AXEremove_all(AXE_engine_t engine, AXE_remove_status_t *remove_status)
         ERROR;
 
     /* Cancel all tasks */
-    if(AXE_schedule_cancel_all(((AXE_engine_int_t *)engine)->schedule, remove_status) < 0)
+    if(AXE_schedule_cancel_all(((AXE_engine_int_t *)engine)->schedule, remove_status) != AXE_SUCCEED)
         ERROR;
 
 done:
@@ -289,4 +295,22 @@ AXEfinish_all(size_t num_tasks, AXE_task_t task[])
 done:
     return ret_value;
 } /* end AXEfinish_all() */
+
+
+AXE_error_t
+AXEbegin_try(void)
+{
+    OPA_incr_int(&AXE_quiet_g);
+
+    return AXE_SUCCEED;
+} /* end AXE_begin_try() */
+
+
+AXE_error_t
+AXEend_try(void)
+{
+    OPA_decr_int(&AXE_quiet_g);
+
+    return AXE_SUCCEED;
+} /* end AXE_end_try() */
 

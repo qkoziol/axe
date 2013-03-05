@@ -38,18 +38,26 @@
 
 
 /*
+ * Private global variables
+ */
+extern OPA_int_t AXE_quiet_g;
+
+
+/*
  * Private macros
  */
 #define ERROR \
 do { \
-    fprintf(stderr, "FAILED in " __FILE__ " at line %d\n", __LINE__); \
+    if(OPA_load_int(&AXE_quiet_g) == 0) \
+        fprintf(stderr, "FAILED in " __FILE__ " at line %d\n", __LINE__); \
     ret_value = AXE_FAIL; \
     goto done; \
 } while(0)
 
 #define ERROR_RET(RET) \
 do { \
-    fprintf(stderr, "FAILED in " __FILE__ " at line %d\n", __LINE__); \
+    if(OPA_load_int(&AXE_quiet_g) == 0) \
+        fprintf(stderr, "FAILED in " __FILE__ " at line %d\n", __LINE__); \
     ret_value = RET; \
     goto done; \
 } while(0)

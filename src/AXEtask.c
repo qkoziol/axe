@@ -52,7 +52,7 @@ AXE_task_decr_ref(AXE_task_int_t *task)
 #endif /* AXE_DEBUG_REF */
         /* The scheduler should always hold a reference until the task is done
          * (until we implement remove, etc.) */
-        assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE);
+        assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED));
 
         AXE_task_free(task);
     } /* end if */
@@ -287,7 +287,7 @@ AXE_task_wait(AXE_task_int_t *task)
 
     /* Check if the task is already complete (or canceled) */
     if(((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_DONE)
-            || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED))
+            && ((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_CANCELED))
         /* Wait for signal */
         if(0 != pthread_cond_wait(&task->wait_cond, &task->task_mutex))
             ERROR;

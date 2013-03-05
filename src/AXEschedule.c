@@ -32,7 +32,7 @@ struct AXE_schedule_t {
     pthread_mutex_t         wait_all_mutex;         /* Mutex for waiting for all tasks to complete */
     AXE_task_int_t          task_list_head;         /* Sentinel task for head of task list (only used for destroying all tasks) */
     AXE_task_int_t          task_list_tail;         /* Sentinel task for tail of task list */
-    pthread_mutex_t         task_list_mutex;        /* Mutex for task list */
+    pthread_mutex_t         task_list_mutex;        /* Mutex for task list.  Must not be taken while holding a task mutex! */
 };
 
 
@@ -834,6 +834,12 @@ AXE_schedule_cancel_all(AXE_schedule_t *schedule,
 
     /* Start remove_status as AXE_ALL_DONE, so the first task sets remove_status
      * to its remove status */
+    if(remove_status)
+        *remove_status = AXE_ALL_DONE;
+
+    /* Lock task list mutex */
+    if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
+        ERROR;
 
     /* Loop over all tasks in the task list, marking all that are not running or
      * done as canceled */
@@ -845,17 +851,22 @@ AXE_schedule_cancel_all(AXE_schedule_t *schedule,
             ERROR;
 
         /* Update remove_status */
-        if(remove_status && ((*remove_status = AXE_ALL_DONE)
-                || ((*remove_status = AXE_CANCELED)
+        if(remove_status && ((*remove_status == AXE_ALL_DONE)
+                || ((*remove_status == AXE_CANCELED)
                   && (task_remove_status == AXE_NOT_CANCELED))))
             *remove_status = task_remove_status;
     } /* end for */
+
+    /* Unlock task list mutex */
+    if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
+        ERROR;
 
 done:
     return ret_value;
 } /* end AXE_cancel_all() */
 
 
+/* This function must *not* be called while holding a task mutex! */
 AXE_error_t
 AXE_schedule_remove_from_list(AXE_task_int_t *task)
 {

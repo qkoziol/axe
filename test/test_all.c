@@ -32,6 +32,9 @@ typedef struct {
     size_t num_necessary_parents;
     size_t num_sufficient_parents;
     pthread_mutex_t *mutex;
+    pthread_cond_t *cond;
+    pthread_mutex_t *cond_mutex;
+    int cond_signal_sent;
 } basic_task_t;
 
 
@@ -48,6 +51,18 @@ basic_task_worker(size_t num_necessary_parents, AXE_task_t necessary_parents[],
 {
     basic_task_t *task_data = (basic_task_t *)_task_data;
     size_t i;
+
+    /* Send the condition signal, if requested */
+    if(task_data->cond) {
+        assert(task_data->cond_mutex);
+        if(0 != pthread_mutex_lock(task_data->cond_mutex))
+            task_data->failed = 1;
+        if(0 != pthread_cond_signal(task_data->cond))
+            task_data->failed = 1;
+        task_data->cond_signal_sent = 1;
+        if(0 != pthread_mutex_unlock(task_data->cond_mutex))
+            task_data->failed = 1;
+    } /* end if */
 
     /* Lock and unlock the mutex, if provided, to prevent exectuion until we are
      * allowed */
@@ -102,6 +117,9 @@ int test_simple(size_t num_threads)
         task_data[i].shared = &shared_task_data;
         task_data[i].failed = 0;
         task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+        task_data[i].cond_signal_sent = 0;
     } /* end for */
 
     /* Create AXE engine */
@@ -126,7 +144,7 @@ int test_simple(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -176,11 +194,11 @@ int test_simple(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -248,7 +266,7 @@ int test_simple(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -313,6 +331,9 @@ test_necessary(size_t num_threads)
         task_data[i].shared = &shared_task_data;
         task_data[i].failed = 0;
         task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+        task_data[i].cond_signal_sent = 0;
     } /* end for */
 
     /* Create AXE engine */
@@ -342,7 +363,7 @@ test_necessary(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -409,9 +430,9 @@ test_necessary(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -492,7 +513,7 @@ test_necessary(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -590,7 +611,7 @@ test_necessary(size_t num_threads)
             TEST_ERROR;
 
         /* Wait for third parent task to complete */
-        if(AXEwait(task[2]) < 0)
+        if(AXEwait(task[2]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Make sure the blocked parent tasks have not yet completed, and the
@@ -617,7 +638,7 @@ test_necessary(size_t num_threads)
             TEST_ERROR;
 
         /* Wait for first parent task to complete */
-        if(AXEwait(task[0]) < 0)
+        if(AXEwait(task[0]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Make sure the blocked parent task has not run yet, and the child has
@@ -644,7 +665,7 @@ test_necessary(size_t num_threads)
             TEST_ERROR;
 
         /* Wait for child task to complete */
-        if(AXEwait(task[3]) < 0)
+        if(AXEwait(task[3]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Verify results */
@@ -706,6 +727,8 @@ test_necessary(size_t num_threads)
             TEST_ERROR;
         if(AXEfinish(task[3]) != AXE_SUCCEED)
             TEST_ERROR;
+        for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+            task_data[i].mutex = NULL;
     } /* end if */
 
 
@@ -759,7 +782,7 @@ test_necessary(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[9]) < 0)
+    if(AXEwait(task[9]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -799,6 +822,8 @@ test_necessary(size_t num_threads)
     for(i = 0; i < 10; i++)
         if(AXEfinish(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].mutex = NULL;
 
 
     /*
@@ -847,7 +872,7 @@ test_necessary(size_t num_threads)
 
     /* Wait for tasks to complete */
     for(i = 1; i <= 9; i++)
-        if(AXEwait(task[i]) < 0)
+        if(AXEwait(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
     /* Verify results */
@@ -881,6 +906,8 @@ test_necessary(size_t num_threads)
     for(i = 0; i < 10; i++)
         if(AXEfinish(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].mutex = NULL;
 
 
     /*
@@ -934,6 +961,9 @@ test_sufficient(size_t num_threads)
         task_data[i].shared = &shared_task_data;
         task_data[i].failed = 0;
         task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+        task_data[i].cond_signal_sent = 0;
     } /* end for */
 
     /* Create AXE engine */
@@ -963,7 +993,7 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1030,9 +1060,9 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1113,11 +1143,11 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1225,7 +1255,7 @@ test_sufficient(size_t num_threads)
             TEST_ERROR;
 
         /* Wait for child task to complete */
-        if(AXEwait(task[2]) < 0)
+        if(AXEwait(task[2]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Make sure the first parent and child have completed, and the second
@@ -1248,7 +1278,7 @@ test_sufficient(size_t num_threads)
             TEST_ERROR;
 
         /* Wait for second parent task to complete */
-        if(AXEwait(task[1]) < 0)
+        if(AXEwait(task[1]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Verify results */
@@ -1298,6 +1328,8 @@ test_sufficient(size_t num_threads)
             TEST_ERROR;
         if(AXEfinish(task[2]) != AXE_SUCCEED)
             TEST_ERROR;
+        for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+            task_data[i].mutex = NULL;
     } /* end if */
 
 
@@ -1352,7 +1384,7 @@ test_sufficient(size_t num_threads)
 
     /* Wait for tasks to complete */
     for(i = 1; i <= 9; i++)
-        if(AXEwait(task[i]) < 0)
+        if(AXEwait(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
     /* Verify results */
@@ -1392,6 +1424,8 @@ test_sufficient(size_t num_threads)
     for(i = 0; i < 10; i++)
         if(AXEfinish(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].mutex = NULL;
 
 
     /*
@@ -1440,7 +1474,7 @@ test_sufficient(size_t num_threads)
 
     /* Wait for tasks to complete */
     for(i = 1; i <= 9; i++)
-        if(AXEwait(task[i]) < 0)
+        if(AXEwait(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
     /* Verify results */
@@ -1474,10 +1508,12 @@ test_sufficient(size_t num_threads)
     for(i = 0; i < 10; i++)
         if(AXEfinish(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].mutex = NULL;
 
 
     /*
-     * Test 3: Sufficient and necessary parents of same task
+     * Test 7: Sufficient and necessary parents of same task
      */
     /* Initialize shared task data struct */
     shared_task_data.max_ncalls = 3;
@@ -1503,9 +1539,9 @@ test_sufficient(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1606,6 +1642,9 @@ test_barrier(size_t num_threads)
         task_data[i].shared = &shared_task_data;
         task_data[i].failed = 0;
         task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+        task_data[i].cond_signal_sent = 0;
     } /* end for */
 
     /* Create AXE engine */
@@ -1630,7 +1669,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1680,7 +1719,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1747,7 +1786,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1829,7 +1868,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[3]) < 0)
+    if(AXEwait(task[3]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1930,7 +1969,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[3]) < 0)
+    if(AXEwait(task[3]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -1977,6 +2016,8 @@ test_barrier(size_t num_threads)
     for(i = 0; i <= 3; i++)
         if(AXEfinish(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].mutex = NULL;
 
 
     /*
@@ -2021,7 +2062,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[6]) < 0)
+    if(AXEwait(task[6]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -2151,7 +2192,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[6]) < 0)
+    if(AXEwait(task[6]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -2217,6 +2258,8 @@ test_barrier(size_t num_threads)
     for(i = 0; i <= 6; i++)
         if(AXEfinish(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].mutex = NULL;
 
 
     /*
@@ -2269,7 +2312,7 @@ test_barrier(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[10]) < 0)
+    if(AXEwait(task[10]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -2309,6 +2352,8 @@ test_barrier(size_t num_threads)
     for(i = 0; i < 11; i++)
         if(AXEfinish(task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].mutex = NULL;
 
 
     /*
@@ -2350,6 +2395,9 @@ test_get_op_data(size_t num_threads)
     task_data.shared = &shared_task_data;
     task_data.failed = 0;
     task_data.mutex = NULL;
+    task_data.cond = NULL;
+    task_data.cond_mutex = NULL;
+    task_data.cond_signal_sent = 0;
 
     /* Create AXE engine */
     if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
@@ -2378,7 +2426,7 @@ test_get_op_data(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task) < 0)
+    if(AXEwait(task) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Check that op_data returned is task_data */
@@ -2441,6 +2489,9 @@ test_finish_all(size_t num_threads)
         task_data[i].shared = &shared_task_data;
         task_data[i].failed = 0;
         task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+        task_data[i].cond_signal_sent = 0;
     } /* end for */
 
     /* Create AXE engine */
@@ -2468,9 +2519,9 @@ test_finish_all(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
@@ -2562,7 +2613,7 @@ int test_free_op_data(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify free_op_data has been called the correct number of times */
@@ -2592,6 +2643,7 @@ int test_free_op_data(size_t num_threads)
     if(OPA_load_int(&ncalls[2]) != 0)
         TEST_ERROR;
 
+
     /*
      * Test 2: Three tasks
      */
@@ -2615,11 +2667,11 @@ int test_free_op_data(size_t num_threads)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) < 0)
+    if(AXEwait(task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) < 0)
+    if(AXEwait(task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) < 0)
+    if(AXEwait(task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify free_op_data has been called the correct number of times */
@@ -2668,6 +2720,837 @@ error:
 
 
 int
+test_remove(size_t num_threads)
+{
+    AXE_engine_t engine;
+    AXE_task_t task[2];
+    AXE_status_t status;
+    AXE_remove_status_t remove_status;
+    basic_task_t task_data[2];
+    basic_task_shared_t shared_task_data;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    pthread_mutex_t cond_mutex;
+    int i;
+
+    TESTING("AXEremove()");
+
+    /* Initialize mutexes and condition variables */
+    if(0 != pthread_mutex_init(&mutex, NULL))
+        TEST_ERROR;
+    if(0 != pthread_cond_init(&cond, NULL))
+        TEST_ERROR;
+    if(0 != pthread_mutex_init(&cond_mutex, NULL))
+        TEST_ERROR;
+
+    /* Initialize task data structs */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].shared = &shared_task_data;
+        task_data[i].failed = 0;
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+    } /* end for */
+
+    /* Create AXE engine */
+    if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 1: Single task, attempt removing while in progress and complete
+     */
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 1;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].run_order = -1;
+        task_data[i].cond_signal_sent = 0;
+    } /* end for */
+    task_data[0].mutex = &mutex;
+    task_data[0].cond = &cond;
+    task_data[0].cond_mutex = &cond_mutex;
+
+    /* Lock mutex */
+    if(0 != pthread_mutex_lock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Create task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Wait for condition signal so we know the task is in progress */
+    if(0 != pthread_mutex_lock(task_data[0].cond_mutex))
+        TEST_ERROR;
+    if(task_data[0].cond_signal_sent == 0)
+        if(0 != pthread_cond_wait(task_data[0].cond, task_data[0].cond_mutex))
+            TEST_ERROR;
+    if(0 != pthread_mutex_unlock(task_data[0].cond_mutex))
+        TEST_ERROR;
+
+    /* Try to remove the task.  Should return AXE_NOT_CANCELED. */
+    if(AXEremove(task[0], &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_NOT_CANCELED)
+        TEST_ERROR;
+
+    /* Verify task status is AXE_TASK_RUNNING */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_RUNNING)
+        TEST_ERROR;
+
+    /* Unlock the main mutex to allow the task to proceed */
+    if(0 != pthread_mutex_unlock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Wait for task to complete */
+    if(AXEwait(task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Try to remove the task.  Should return AXE_ALL_DONE. */
+    if(AXEremove(task[0], &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_ALL_DONE)
+        TEST_ERROR;
+
+    /* Verify results */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
+    if(task_data[0].run_order != 0)
+        TEST_ERROR;
+    if(task_data[0].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[0].num_sufficient_parents != 0)
+        TEST_ERROR;
+    for(i = 1; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].run_order != -1)
+            TEST_ERROR;
+    if(OPA_load_int(&shared_task_data.ncalls) != 1)
+        TEST_ERROR;
+
+    /* Close task */
+    if(AXEfinish(task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+    } /* end for */
+
+
+    /*
+     * Test 2: Two task chain, try removing both
+     */
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 1;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].run_order = -1;
+        task_data[i].cond_signal_sent = 0;
+    } /* end for */
+    task_data[0].mutex = &mutex;
+    task_data[0].cond = &cond;
+    task_data[0].cond_mutex = &cond_mutex;
+
+    /* Lock mutex */
+    if(0 != pthread_mutex_lock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Create first task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create second task */
+    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Wait for condition signal so we know the task is in progress */
+    if(0 != pthread_mutex_lock(task_data[0].cond_mutex))
+        TEST_ERROR;
+    if(task_data[0].cond_signal_sent == 0)
+        if(0 != pthread_cond_wait(task_data[0].cond, task_data[0].cond_mutex))
+            TEST_ERROR;
+    if(0 != pthread_mutex_unlock(task_data[0].cond_mutex))
+        TEST_ERROR;
+
+    /* Verify task statuses */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_RUNNING)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_WAITING_FOR_PARENT)
+        TEST_ERROR;
+
+    /* Try to remove the first task.  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Remove the second task.  Should return AXE_CANCELED. */
+    if(AXEremove(task[1], &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_CANCELED)
+        TEST_ERROR;
+
+    /* Unlock the main mutex to allow the first task to proceed */
+    if(0 != pthread_mutex_unlock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Wait for tasks to complete.  Include wait on canceled task to make sure
+     * wait correctly returns failure for canceled task. */
+    if(AXEwait(task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEwait(task[1]) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Try againto remove the first task.  Should still fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Verify results */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_CANCELED)
+        TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
+    if(task_data[0].run_order != 0)
+        TEST_ERROR;
+    if(task_data[0].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[0].num_sufficient_parents != 0)
+        TEST_ERROR;
+    for(i = 1; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].run_order != -1)
+            TEST_ERROR;
+    if(OPA_load_int(&shared_task_data.ncalls) != 1)
+        TEST_ERROR;
+
+    /* Close tasks */
+    if(AXEfinish(task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 3: Two task chain with sufficient condition, try removing both
+     */
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 1;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].run_order = -1;
+        task_data[i].cond_signal_sent = 0;
+    } /* end for */
+    task_data[0].mutex = &mutex;
+    task_data[0].cond = &cond;
+    task_data[0].cond_mutex = &cond_mutex;
+
+    /* Lock mutex */
+    if(0 != pthread_mutex_lock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Create first task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create second task */
+    if(AXEcreate_task(engine, &task[1], 0, NULL, 1, &task[0], basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Wait for condition signal so we know the task is in progress */
+    if(0 != pthread_mutex_lock(task_data[0].cond_mutex))
+        TEST_ERROR;
+    if(task_data[0].cond_signal_sent == 0)
+        if(0 != pthread_cond_wait(task_data[0].cond, task_data[0].cond_mutex))
+            TEST_ERROR;
+    if(0 != pthread_mutex_unlock(task_data[0].cond_mutex))
+        TEST_ERROR;
+
+    /* Verify task statuses */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_RUNNING)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_WAITING_FOR_PARENT)
+        TEST_ERROR;
+
+    /* Try to remove the first task.  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Remove the second task.  Should return AXE_CANCELED. */
+    if(AXEremove(task[1], &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_CANCELED)
+        TEST_ERROR;
+
+    /* Unlock the main mutex to allow the first task to proceed */
+    if(0 != pthread_mutex_unlock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Wait for tasks to complete.  Include wait on canceled task to make sure
+     * wait correctly returns failure for canceled task. */
+    if(AXEwait(task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEwait(task[1]) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Try again to remove the first task.  Should still fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Verify results */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_CANCELED)
+        TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
+    if(task_data[0].run_order != 0)
+        TEST_ERROR;
+    if(task_data[0].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[0].num_sufficient_parents != 0)
+        TEST_ERROR;
+    for(i = 1; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].run_order != -1)
+            TEST_ERROR;
+    if(OPA_load_int(&shared_task_data.ncalls) != 1)
+        TEST_ERROR;
+
+    /* Close tasks */
+    if(AXEfinish(task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Close
+     */
+    /* Terminate engine */
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Destroy mutexes and condition vairables */
+    if(0 != pthread_mutex_destroy(&mutex))
+        TEST_ERROR;
+    if(0 != pthread_cond_destroy(&cond))
+        TEST_ERROR;
+    if(0 != pthread_mutex_destroy(&cond_mutex))
+        TEST_ERROR;
+
+    PASSED();
+    return 0;
+
+error:
+    (void)AXEterminate_engine(engine, FALSE);
+
+    (void)pthread_mutex_destroy(&mutex);
+    (void)pthread_cond_destroy(&cond);
+    (void)pthread_mutex_destroy(&cond_mutex);
+
+    return 1;
+} /* end test_remove() */
+
+
+int
+test_remove_all(size_t num_threads)
+{
+    AXE_engine_t engine;
+    AXE_task_t task[4];
+    AXE_status_t status;
+    AXE_remove_status_t remove_status;
+    basic_task_t task_data[4];
+    basic_task_shared_t shared_task_data;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    pthread_mutex_t cond_mutex;
+    int i;
+
+    TESTING("AXEremove_all()");
+
+    /* Initialize mutexes and condition variables */
+    if(0 != pthread_mutex_init(&mutex, NULL))
+        TEST_ERROR;
+    if(0 != pthread_cond_init(&cond, NULL))
+        TEST_ERROR;
+    if(0 != pthread_mutex_init(&cond_mutex, NULL))
+        TEST_ERROR;
+
+    /* Initialize task data structs */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].shared = &shared_task_data;
+        task_data[i].failed = 0;
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+    } /* end for */
+
+    /* Create AXE engine */
+    if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * All tests have a configuration of one parent with one two-task chain of
+     * necessary children and a single sufficient child
+     */
+    /*
+     * Test 1: Hold mutex on parent
+     */
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 1;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].run_order = -1;
+        task_data[i].cond_signal_sent = 0;
+    } /* end for */
+    task_data[0].mutex = &mutex;
+
+    /* Lock mutex */
+    if(0 != pthread_mutex_lock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Create parent task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create children */
+    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+            &task_data[3], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Remove all tasks.  Should return AXE_NOT_CANCELED or AXE_CANCELED. */
+    if(AXEremove_all(engine, &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if((remove_status != AXE_NOT_CANCELED) && (remove_status != AXE_CANCELED))
+        TEST_ERROR;
+
+    /* Unlock the main mutex to allow the parent task to proceed */
+    if(0 != pthread_mutex_unlock(task_data[0].mutex))
+        TEST_ERROR;
+
+    /* Wait for parent task to complete (may fail if task was canceled) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    (void)AXEwait(task[0]);
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Verify children are canceled and parent is either canceled or done */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
+        TEST_ERROR;
+    for(i = 1; i <= 3; i++) {
+        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(status != AXE_TASK_CANCELED)
+            TEST_ERROR;
+    } /* end for */
+
+    /* Try to remove all the tasks.  Should return AXE_ALL_DONE. */
+    if(AXEremove_all(engine, &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_ALL_DONE)
+        TEST_ERROR;
+
+    /* Verify results */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
+        TEST_ERROR;
+    for(i = 1; i <= 3; i++) {
+        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(status != AXE_TASK_CANCELED)
+            TEST_ERROR;
+    } /* end for */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
+    for(i = 1; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].run_order != -1)
+            TEST_ERROR;
+    if(OPA_load_int(&shared_task_data.ncalls) > 1)
+        TEST_ERROR;
+
+    /* Close tasks */
+    for(i = 0; i < 4; i++)
+        if(AXEfinish(task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+    } /* end for */
+
+
+    /*
+     * Test 2: Hold mutex on first necessary child
+     */
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 3;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].run_order = -1;
+        task_data[i].cond_signal_sent = 0;
+    } /* end for */
+    task_data[1].mutex = &mutex;
+    task_data[1].cond = &cond;
+    task_data[1].cond_mutex = &cond_mutex;
+
+    /* Lock mutex */
+    if(0 != pthread_mutex_lock(task_data[1].mutex))
+        TEST_ERROR;
+
+    /* Create parent task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create children */
+    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+            &task_data[3], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Wait for condition signal so we know the first child task is in progress
+     */
+    if(0 != pthread_mutex_lock(task_data[1].cond_mutex))
+        TEST_ERROR;
+    if(task_data[1].cond_signal_sent == 0)
+        if(0 != pthread_cond_wait(task_data[1].cond, task_data[1].cond_mutex))
+            TEST_ERROR;
+    if(0 != pthread_mutex_unlock(task_data[1].cond_mutex))
+        TEST_ERROR;
+
+    /* Remove all tasks.  Should return AXE_NOT_CANCELED. */
+    if(AXEremove_all(engine, &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_NOT_CANCELED)
+        TEST_ERROR;
+
+    /* Verify statuses */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_RUNNING)
+        TEST_ERROR;
+    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_CANCELED)
+        TEST_ERROR;
+    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED)
+            && (status != AXE_TASK_RUNNING))
+        TEST_ERROR;
+
+    /* Unlock the main mutex to allow the first child task to proceed */
+    if(0 != pthread_mutex_unlock(task_data[1].mutex))
+        TEST_ERROR;
+
+    /* Wait for the child tasks to complete (sufficient child may fail if
+     * it was canceled) */
+    if(AXEwait(task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    (void)AXEwait(task[3]);
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Verify statuses */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_CANCELED)
+        TEST_ERROR;
+    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
+        TEST_ERROR;
+
+    /* Try to remove all the tasks.  Should return AXE_ALL_DONE. */
+    if(AXEremove_all(engine, &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_ALL_DONE)
+        TEST_ERROR;
+
+    /* Verify results */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_CANCELED)
+        TEST_ERROR;
+    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
+        TEST_ERROR;
+    if(task_data[0].run_order != 0)
+        TEST_ERROR;
+    if(task_data[0].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[0].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if((task_data[1].run_order < 1) || (task_data[1].run_order > 2))
+        TEST_ERROR;
+    if(task_data[1].num_necessary_parents != 1)
+        TEST_ERROR;
+    if(task_data[1].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if(task_data[2].run_order != -1)
+        TEST_ERROR;
+    if((task_data[3].run_order == 0) || (task_data[3].run_order > 2))
+        TEST_ERROR;
+    if((OPA_load_int(&shared_task_data.ncalls) < 2)
+            || (OPA_load_int(&shared_task_data.ncalls) > 3))
+        TEST_ERROR;
+
+    /* Close tasks */
+    for(i = 0; i < 4; i++)
+        if(AXEfinish(task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+    } /* end for */
+
+
+    /*
+     * Test 3: Wait until all are complete
+     */
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 4;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].run_order = -1;
+        task_data[i].cond_signal_sent = 0;
+    } /* end for */
+
+    /* Create parent task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create children */
+    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+            &task_data[3], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Wait for the child tasks to complete  */
+    if(AXEwait(task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEwait(task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Verify statuses */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+
+    /* Try to remove all the tasks.  Should return AXE_ALL_DONE. */
+    if(AXEremove_all(engine, &remove_status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(remove_status != AXE_ALL_DONE)
+        TEST_ERROR;
+
+    /* Verify results */
+    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(status != AXE_TASK_DONE)
+        TEST_ERROR;
+    if(task_data[0].run_order != 0)
+        TEST_ERROR;
+    if(task_data[0].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[0].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if((task_data[1].run_order < 1) || (task_data[1].run_order > 2))
+        TEST_ERROR;
+    if(task_data[1].num_necessary_parents != 1)
+        TEST_ERROR;
+    if(task_data[1].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if((task_data[2].run_order < 2) || (task_data[1].run_order > 3))
+        TEST_ERROR;
+    if(task_data[2].num_necessary_parents != 1)
+        TEST_ERROR;
+    if(task_data[2].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if((task_data[3].run_order < 1) || (task_data[3].run_order > 3))
+        TEST_ERROR;
+    if(task_data[3].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[3].num_sufficient_parents != 1)
+        TEST_ERROR;
+    if(OPA_load_int(&shared_task_data.ncalls) != 4)
+        TEST_ERROR;
+
+    /* Close tasks */
+    for(i = 0; i < 4; i++)
+        if(AXEfinish(task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+
+
+    /*
+     * Close
+     */
+    /* Terminate engine */
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Destroy mutexes and condition vairables */
+    if(0 != pthread_mutex_destroy(&mutex))
+        TEST_ERROR;
+    if(0 != pthread_cond_destroy(&cond))
+        TEST_ERROR;
+    if(0 != pthread_mutex_destroy(&cond_mutex))
+        TEST_ERROR;
+
+    PASSED();
+    return 0;
+
+error:
+    (void)AXEterminate_engine(engine, FALSE);
+
+    (void)pthread_mutex_destroy(&mutex);
+    (void)pthread_cond_destroy(&cond);
+    (void)pthread_mutex_destroy(&cond_mutex);
+
+    return 1;
+} /* end test_remove_all() */
+
+
+int
 main(int argc, char **argv)
 {
     int i;
@@ -2685,6 +3568,8 @@ main(int argc, char **argv)
         nerrors += test_get_op_data(num_threads_g[i]);
         nerrors += test_finish_all(num_threads_g[i]);
         nerrors += test_free_op_data(num_threads_g[i]);
+        nerrors += test_remove(num_threads_g[i]);
+        nerrors += test_remove_all(num_threads_g[i]);
     } /* end for */
 
     /* Print message about failure or success and exit */

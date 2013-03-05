@@ -71,6 +71,8 @@ AXE_error_t AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/);
 AXE_error_t AXEwait(AXE_task_t task);
 AXE_error_t AXEfinish(AXE_task_t task);
 AXE_error_t AXEfinish_all(size_t num_tasks, AXE_task_t task[]);
+AXE_error_t AXEbegin_try(void);
+AXE_error_t AXEend_try(void);
 
 
 #endif /* AXE_H_INCLUDED */

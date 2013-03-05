@@ -205,13 +205,17 @@ AXE_thread_pool_launch(AXE_thread_t *thread, AXE_thread_op_t thread_op,
     if(0 != pthread_mutex_lock(&thread->thread_mutex))
         ERROR;
 
-    /* Add operator info to thread struct */
-    thread->thread_op = thread_op;
-    thread->thread_op_data = thread_op_data;
+    /* If the thread pool is closing, do not attempt to launch thread, simply
+     * return.  Not running the task is ok since we are closing down. */
+    if(!OPA_load_int(&thread->thread_pool->closing)) {
+        /* Add operator info to thread struct */
+        thread->thread_op = thread_op;
+        thread->thread_op_data = thread_op_data;
 
-    /* Send condition signal to wake up thread */
-    if(0 != pthread_cond_signal(&thread->thread_cond))
-        ERROR;
+        /* Send condition signal to wake up thread */
+        if(0 != pthread_cond_signal(&thread->thread_cond))
+            ERROR;
+    } /* end if */
 
     /* Unlock the thread mutex to allow the thread to proceed */
     if(0 != pthread_mutex_unlock(&thread->thread_mutex))
@@ -319,13 +323,13 @@ AXE_thread_pool_worker(void *_thread)
     if(0 != pthread_mutex_lock(&thread->thread_mutex))
         ERROR_RET(thread);
 
-    /* Push thread onto free thread queue */
-    OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AXE_thread_t, thread_queue_hdr);
-
     /* Check if the thread pool is shutting down (to prevent the race condition
      * where the thread pool already sent the signal to shut down before this
      * thread locked its mutex) */
     if(!OPA_load_int(&thread->thread_pool->closing)) {
+        /* Push thread onto free thread queue */
+        OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AXE_thread_t, thread_queue_hdr);
+
         /* Wait until signaled to run */
         if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
             ERROR_RET(thread);
