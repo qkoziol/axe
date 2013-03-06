@@ -76,7 +76,11 @@ AXE_engine_free(AXE_engine_int_t *engine)
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Mark all tasks as canceled */
-    AXE_schedule_cancel_all(engine->schedule, NULL);
+    if(AXE_schedule_cancel_all(engine->schedule, NULL) != AXE_SUCCEED)
+        ERROR;
+
+    /* Mark schedule as closing */
+    AXE_schedule_closing(engine->schedule);
 
     /* Free thread pool (will wait for all threads to finish) */
     if(AXE_thread_pool_free(engine->thread_pool) != AXE_SUCCEED)

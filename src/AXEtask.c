@@ -210,7 +210,7 @@ AXE_task_worker(void *_task)
                 else {
                     /* Decrement reference count on uncomplete parent */
     #ifdef AXE_DEBUG_REF
-                    printf("AXE_task_worker: decr ref: %p", task->sufficient_parents[i]);
+                    printf("AXE_task_worker: decr ref: %p\n", task->sufficient_parents[i]);
     #endif /* AXE_DEBUG_REF */
                     AXE_task_decr_ref(task->sufficient_parents[i]);
 
@@ -281,6 +281,9 @@ AXE_task_wait(AXE_task_int_t *task)
      * is not AXE_TASK_DONE that we will be woken up from pthread_cond_wait()
      * when the task is complete, i.e. the signal will not be sent before this
      * thread begins waiting. */
+#ifdef AXE_DEBUG_LOCK
+    printf("AXE_task_wait: lock task_mutex: %p\n", &task->task_mutex); fflush(stdout);
+#endif /* AXE_DEBUG_LOCK */
     if(0 != pthread_mutex_lock(&task->task_mutex))
         ERROR;
     is_mutex_locked = TRUE;
@@ -299,8 +302,13 @@ AXE_task_wait(AXE_task_int_t *task)
 
 done:
     /* Unlock wait mutex */
-    if(is_mutex_locked && (0 != pthread_mutex_unlock(&task->task_mutex)))
-        ERROR;
+    if(is_mutex_locked) {
+#ifdef AXE_DEBUG_LOCK
+        printf("AXE_task_wait: unlock task_mutex: %p\n", &task->task_mutex); fflush(stdout);
+#endif /* AXE_DEBUG_LOCK */
+        if(0 != pthread_mutex_unlock(&task->task_mutex))
+            ERROR;
+    } /* end if */
 
     return ret_value;
 } /* end AXE_task_wait() */
@@ -315,6 +323,9 @@ AXE_task_cancel_leaf(AXE_task_int_t *task, AXE_remove_status_t *remove_status)
     assert(task);
 
     /* Lock task mutex */
+#ifdef AXE_DEBUG_LOCK
+    printf("AXE_task_cancel_leaf: lock task_mutex: %p\n", &task->task_mutex); fflush(stdout);
+#endif /* AXE_DEBUG_LOCK */
     if(0 != pthread_mutex_lock(&task->task_mutex))
         ERROR;
     is_mutex_locked = TRUE;
@@ -332,8 +343,13 @@ AXE_task_cancel_leaf(AXE_task_int_t *task, AXE_remove_status_t *remove_status)
 
 done:
     /* Unlock task mutex */
-    if(is_mutex_locked && (0 != pthread_mutex_unlock(&task->task_mutex)))
-        ret_value = AXE_FAIL;
+    if(is_mutex_locked) {
+        assert(ret_value == AXE_FAIL);
+#ifdef AXE_DEBUG_LOCK
+        printf("AXE_task_cancel_leaf: unlock task_mutex: %p\n", &task->task_mutex); fflush(stdout);
+#endif /* AXE_DEBUG_LOCK */
+        (void)pthread_mutex_unlock(&task->task_mutex);
+    } /* end if */
 
     return ret_value;
 } /* end AXE_task_cancel_leaf() */

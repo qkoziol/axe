@@ -40,6 +40,7 @@ AXE_error_t AXE_schedule_cancel(AXE_task_int_t *task,
 AXE_error_t AXE_schedule_cancel_all(AXE_schedule_t *schedule,
     AXE_remove_status_t *remove_status);
 AXE_error_t AXE_schedule_remove_from_list(AXE_task_int_t *task);
+void AXE_schedule_closing(AXE_schedule_t *schedule);
 AXE_error_t AXE_schedule_free(AXE_schedule_t *schedule);
 
 

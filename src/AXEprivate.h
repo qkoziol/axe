@@ -78,6 +78,7 @@ do { \
 /* Debugging */
 //#define AXE_DEBUG
 //#define AXE_DEBUG_REF
+//#define AXE_DEBUG_LOCK
 
 
 #endif /* AXE_PRIVATE_H_INCLUDED */

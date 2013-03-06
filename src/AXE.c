@@ -71,6 +71,8 @@ done:
 } /* end AXEterminate_engine() */
 
 
+/* task is ready to be used once either this function returns or op is called
+ * for this task */
 AXE_error_t
 AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     size_t num_necessary_parents, AXE_task_t necessary_parents[],
@@ -88,30 +90,36 @@ AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     if(num_sufficient_parents > 0 && !sufficient_parents)
         ERROR;
 
-    /* Create task */
-    if(AXE_task_create(engine, &int_task, num_necessary_parents,
-            necessary_parents, num_sufficient_parents, sufficient_parents, op,
-            op_data, free_op_data) != AXE_SUCCEED)
-        ERROR;
-    assert(int_task);
+    /* If the caller requested a handle, pass the caller's pointer directly to
+     * the internal functions, so the handle is available by the time the task
+     * launches. */
+    if(!task)
+        task = &int_task;
 
-    /* If the caller requested a handle, return the pointer to the task,
-     * otherwise decrement the reference count because we will throw away our
-     * task pointer. */
-    if(task)
-        *task = int_task;
-    else {
+    /* Create task */
+    if(AXE_task_create(engine, task, num_necessary_parents, necessary_parents, num_sufficient_parents, sufficient_parents, op, op_data, free_op_data) != AXE_SUCCEED)
+        ERROR;
+    assert(*task);
+
+    /* If the caller did not request a handle, decrement the reference count
+     * because we will throw away our task pointer. */
+    if(int_task) {
 #ifdef AXE_DEBUG_REF
         printf("AXEcreate_task: decr ref: %p", int_task);
 #endif /* AXE_DEBUG_REF */
+        assert(*task == int_task);
         AXE_task_decr_ref(int_task);
-    } /* end else */
+    } /* end if */
+    else
+        assert(*task != int_task);
 
 done:
     return ret_value;
 } /* end AXEcreate_task() */
 
 
+/* task is ready to be used once either this function returns or op is called
+ * for this task */
 AXE_error_t
 AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
@@ -123,26 +131,32 @@ AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     if(!engine)
         ERROR;
 
-    /* Create barrier task */
-    if(AXE_task_create_barrier(engine, &int_task, op, op_data, free_op_data) != AXE_SUCCEED)
-        ERROR;
-    assert(int_task);
+    /* If the caller requested a handle, pass the caller's pointer directly to
+     * the internal functions, so the handle is available by the time the task
+     * launches. */
+    if(!task)
+        task = &int_task;
 
-    /* If the caller requested a handle, return the pointer to the task,
-     * otherwise decrement the reference count because we will throw away our
-     * task pointer. */
-    if(task)
-        *task = int_task;
-    else {
+    /* Create barrier task */
+    if(AXE_task_create_barrier(engine, task, op, op_data, free_op_data) != AXE_SUCCEED)
+        ERROR;
+    assert(*task);
+
+    /* If the caller did not request a handle, decrement the reference count
+     * because we will throw away our task pointer. */
+    if(int_task) {
 #ifdef AXE_DEBUG_REF
-        printf("AXEcreate_task: decr ref: %p", int_task);
+        printf("AXEcreate_barrier_task: decr ref: %p", int_task);
 #endif /* AXE_DEBUG_REF */
+        assert(*task == int_task);
         AXE_task_decr_ref(int_task);
-    } /* end else */
+    } /* end if */
+    else
+        assert(*task != int_task);
 
 done:
     return ret_value;
-} /* end AXEcreate_task() */
+} /* end AXEcreate_barrier_task() */
 
 
 /* Note for AXEremove/remove_all: Does the app still need to call AXEfinish() or
