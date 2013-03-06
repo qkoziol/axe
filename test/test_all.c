@@ -2589,6 +2589,7 @@ free_op_data_worker(void *_ncalls)
 int test_free_op_data(size_t num_threads)
 {
     AXE_engine_t engine;
+    _Bool engine_init = FALSE;
     AXE_task_t task[3];
     OPA_int_t ncalls[3];
     int i;
@@ -2602,6 +2603,7 @@ int test_free_op_data(size_t num_threads)
     /* Create AXE engine */
     if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
     /* Initialize ncalls */
     for(i = 0; i < (sizeof(ncalls) / sizeof(ncalls[0])); i++)
@@ -2634,6 +2636,7 @@ int test_free_op_data(size_t num_threads)
      * no guarantee that the free_op_data callback has been invoked */
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Verify free_op_data has been called the correct number of times */
     if(OPA_load_int(&ncalls[0]) != 1)
@@ -2650,6 +2653,7 @@ int test_free_op_data(size_t num_threads)
     /* Create AXE engine */
     if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
     /* Initialize ncalls */
     for(i = 0; i < (sizeof(ncalls) / sizeof(ncalls[0])); i++)
@@ -2696,6 +2700,7 @@ int test_free_op_data(size_t num_threads)
      * no guarantee that the free_op_data callback has been invoked */
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Verify free_op_data has been called the correct number of times */
     if(OPA_load_int(&ncalls[0]) != 1)
@@ -2713,7 +2718,8 @@ int test_free_op_data(size_t num_threads)
     return 0;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
+    if(engine_init)
+        (void)AXEterminate_engine(engine, FALSE);
 
     return 1;
 } /* end test_free_op_data() */
@@ -3235,9 +3241,6 @@ test_remove_all(size_t num_threads)
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         if(task_data[i].failed > 0)
             TEST_ERROR;
-    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
-        if(task_data[i].failed > 0)
-            TEST_ERROR;
     for(i = 1; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         if(task_data[i].run_order != -1)
             TEST_ERROR;
@@ -3381,6 +3384,9 @@ test_remove_all(size_t num_threads)
         TEST_ERROR;
     if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
         TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
     if(task_data[0].run_order != 0)
         TEST_ERROR;
     if(task_data[0].num_necessary_parents != 0)
@@ -3488,6 +3494,9 @@ test_remove_all(size_t num_threads)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
     if(task_data[0].run_order != 0)
         TEST_ERROR;
     if(task_data[0].num_necessary_parents != 0)
@@ -3551,6 +3560,201 @@ error:
 
 
 int
+test_terminate_engine(size_t num_threads)
+{
+    AXE_engine_t engine;
+    _Bool engine_init = FALSE;
+    AXE_task_t task[4];
+    basic_task_t task_data[4];
+    basic_task_shared_t shared_task_data;
+    int i;
+
+    TESTING("AXEterminate_engine()");
+
+    /* Initialize task data structs */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
+        task_data[i].shared = &shared_task_data;
+        task_data[i].failed = 0;
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+    } /* end for */
+
+
+    /*
+     * Both tests have a configuration of one parent with one two-task chain of
+     * necessary children and a single sufficient child
+     */
+    /*
+     * Test 1: Wait all
+     */
+    /* Create AXE engine */
+    if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 4;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].run_order = -1;
+
+    /* Create parent task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create children */
+    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+            &task_data[3], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine, with wait_all set to TRUE */
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = FALSE;
+
+    /* Verify results - all tasks should have completed */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
+    if(task_data[0].run_order != 0)
+        TEST_ERROR;
+    if(task_data[0].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[0].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if((task_data[1].run_order < 1) || (task_data[1].run_order > 2))
+        TEST_ERROR;
+    if(task_data[1].num_necessary_parents != 1)
+        TEST_ERROR;
+    if(task_data[1].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if((task_data[2].run_order < 2) || (task_data[1].run_order > 3))
+        TEST_ERROR;
+    if(task_data[2].num_necessary_parents != 1)
+        TEST_ERROR;
+    if(task_data[2].num_sufficient_parents != 0)
+        TEST_ERROR;
+    if((task_data[3].run_order < 1) || (task_data[3].run_order > 3))
+        {printf("%d\n", (int)task_data[3].run_order); TEST_ERROR;}
+    if(task_data[3].num_necessary_parents != 0)
+        TEST_ERROR;
+    if(task_data[3].num_sufficient_parents != 1)
+        TEST_ERROR;
+    if(OPA_load_int(&shared_task_data.ncalls) != 4)
+        TEST_ERROR;
+
+
+    /*
+     * Test 2: No wait all
+     */
+    /* Create AXE engine */
+    if(AXEcreate_engine(num_threads, &engine) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Initialize shared task data struct */
+    shared_task_data.max_ncalls = 4;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task data struct */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        task_data[i].run_order = -1;
+
+    /* Create parent task */
+    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+            &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create children */
+    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+            &task_data[1], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+            &task_data[2], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+            &task_data[3], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine, with wait_all set to FALSE */
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = FALSE;
+
+    /* Verify results */
+    for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
+        if(task_data[i].failed > 0)
+            TEST_ERROR;
+    if(task_data[0].run_order == -1) {
+        for(i = 1; i <= 3; i++)
+            if(task_data[i].run_order != -1)
+                TEST_ERROR;
+    } /* end if */
+    else {
+        if(task_data[0].run_order != 0)
+            TEST_ERROR;
+        if(task_data[0].num_necessary_parents != 0)
+            TEST_ERROR;
+        if(task_data[0].num_sufficient_parents != 0)
+            TEST_ERROR;
+        if(task_data[1].run_order == -1) {
+            if(task_data[2].run_order != -1)
+                TEST_ERROR;
+        } /* end if */
+        else {
+            if((task_data[1].run_order < 1) || (task_data[1].run_order > 2))
+                TEST_ERROR;
+            if(task_data[1].num_necessary_parents != 1)
+                TEST_ERROR;
+            if(task_data[1].num_sufficient_parents != 0)
+                TEST_ERROR;
+            if(task_data[2].run_order != -1) {
+                if((task_data[2].run_order < 2) || (task_data[1].run_order > 3))
+                    TEST_ERROR;
+                if(task_data[2].num_necessary_parents != 1)
+                    TEST_ERROR;
+                if(task_data[2].num_sufficient_parents != 0)
+                    TEST_ERROR;
+            } /* end if */
+        } /* end else */
+        if(task_data[3].run_order != -1) {
+            if((task_data[3].run_order < 1) || (task_data[3].run_order > 3))
+                TEST_ERROR;
+            if(task_data[3].num_necessary_parents != 0)
+                TEST_ERROR;
+            if(task_data[3].num_sufficient_parents != 1)
+                TEST_ERROR;
+        } /* end if */
+    } /* end else */
+    if(OPA_load_int(&shared_task_data.ncalls) > 4)
+        TEST_ERROR;
+
+
+    /*
+     * Close
+     */
+    PASSED();
+    return 0;
+
+error:
+    if(engine_init)
+        (void)AXEterminate_engine(engine, FALSE);
+
+    return 1;
+} /* end test_remove_all() */
+
+
+int
 main(int argc, char **argv)
 {
     int i;
@@ -3570,6 +3774,7 @@ main(int argc, char **argv)
         nerrors += test_free_op_data(num_threads_g[i]);
         nerrors += test_remove(num_threads_g[i]);
         nerrors += test_remove_all(num_threads_g[i]);
+        nerrors += test_terminate_engine(num_threads_g[i]);
     } /* end for */
 
     /* Print message about failure or success and exit */

@@ -27,7 +27,6 @@ struct AXE_schedule_t {
     pthread_mutex_t         scheduled_queue_mutex;  /* Mutex for dequeueing from scheduled_queue */
     OPA_int_t               sleeping_workers;       /* # of worker threads not guaranteed to try dequeueing tasks before they complete */
     OPA_int_t               num_tasks;              /* # of tasks in scheduler */
-    OPA_int_t               all_tasks_done;         /* Whether all tasks are done (i.e. num_tasks == 0).  Separate variable so we only have to lock wait_all_mutex when num_tasks drops to 0 */
     pthread_cond_t          wait_all_cond;          /* Condition variable for waiting for all tasks to complete */
     pthread_mutex_t         wait_all_mutex;         /* Mutex for waiting for all tasks to complete */
     AXE_task_int_t          task_list_head;         /* Sentinel task for head of task list (only used for destroying all tasks) */
@@ -68,9 +67,8 @@ AXE_schedule_create(size_t num_threads, AXE_schedule_t **schedule/*out*/)
     /* Initialize sleeping_threads */
     OPA_store_int(&(*schedule)->sleeping_workers, (int)num_threads);
 
-    /* Initialize number of tasks and all_tasks_done */
+    /* Initialize number of tasks */
     OPA_store_int(&(*schedule)->num_tasks, 0);
-    OPA_store_int(&(*schedule)->all_tasks_done, TRUE);
 
     /* Initialize wait_all condition variable */
     if(0 != pthread_cond_init(&(*schedule)->wait_all_cond, NULL))
@@ -622,15 +620,16 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
             ERROR;
 
         /* Decrement the number of tasks and if this was the last task signal
-         * threads waiting for all tasks to complete */
+         * threads waiting for all tasks to complete.  Since we will only change
+         * this from a "not-signaled" to "signaled" state, and not the other way
+         * around, we can get away with not locking the mutex until after the
+         * decr_and_test.  Since the waiter locks the mutex before checking
+         * num_tasks the signaller cannot send the signal before the waiter
+         * waits on the signal. */
         if(OPA_decr_and_test_int(&schedule->num_tasks)) {
-            /* Lock wait_all mutex, before changing all_tasks_done to avoid race
-             * condition */
+            /* Lock wait_all mutex */
             if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
                 ERROR;
-
-            /* Mark all tasks as done */
-            OPA_store_int(&schedule->all_tasks_done, TRUE);
 
             /* Signal threads waiting on all tasks to complete */
             if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
@@ -724,15 +723,17 @@ AXE_schedule_wait_all(AXE_schedule_t *schedule)
     assert(schedule);
 
     /* Lock wait_all mutex.  Do so before checking the status so we know that
-     * (together with the similar mutex in AXE_schedule_finish()) if
-     * all_tasks_done is not TRUE that we will be woken up from
-     * pthread_cond_wait() when the task is complete, i.e. the signal will not
-     * be sent before this thread begins waiting. */
+     * (together with the similar mutex in AXE_schedule_finish()) if num_tasks
+     * is not 0 that we will be woken up from pthread_cond_wait() when the task
+     * is complete, i.e. the signal will not be sent before this thread begins
+     * waiting.  Note that AXE_schedule_finish() could decrement num_tasks
+     * after this thread checks num_tasks and before this thread waits, but in
+     * that case it cannot sen the signal until after this thread waits. */
     if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
         ERROR;
 
     /* Check if all tasks are already complete */
-    if(!OPA_load_int(&schedule->all_tasks_done))
+    if(OPA_load_int(&schedule->num_tasks) > 0)
         /* Wait for signal */
         if(0 != pthread_cond_wait(&schedule->wait_all_cond, &schedule->wait_all_mutex))
             ERROR;
@@ -781,15 +782,16 @@ AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
             ERROR;
 
         /* Decrement the number of tasks and if this was the last task signal
-         * threads waiting for all tasks to complete */
+         * threads waiting for all tasks to complete.  Since we will only change
+         * this from a "not-signaled" to "signaled" state, and not the other way
+         * around, we can get away with not locking the mutex until after the
+         * decr_and_test.  Since the waiter locks the mutex before checking
+         * num_tasks the signaller cannot send the signal before the waiter
+         * waits on the signal. */
         if(OPA_decr_and_test_int(&schedule->num_tasks)) {
-            /* Lock wait_all mutex, before changing all_tasks_done to avoid race
-             * condition */
+            /* Lock wait_all mutex */
             if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
                 ERROR;
-
-            /* Mark all tasks as done */
-            OPA_store_int(&schedule->all_tasks_done, TRUE);
 
             /* Signal threads waiting on all tasks to complete */
             if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
@@ -904,14 +906,6 @@ AXE_schedule_free(AXE_schedule_t *schedule)
 
     assert(schedule);
 
-    /* By the time we get here the scheduled task queue should be empty.  If we
-     * ever have AXEterminate_engine without WAIT_ALL "short circuit" the
-     * traversal of the tasks then we will need to remove this assertion, or
-     * change it to not apply in that case. */
-    assert(OPA_Queue_is_empty(&schedule->scheduled_queue));
-    assert(OPA_load_int(&schedule->num_tasks) == 0);
-    assert(OPA_load_int(&schedule->all_tasks_done));
-
     /* Free all remaining tasks.  They should all be done or canceled. */
     for(task = schedule->task_list_head.task_list_next;
             task != &schedule->task_list_tail;
@@ -964,10 +958,8 @@ AXE_schedule_add_common(AXE_task_int_t *task)
 
     schedule = task->engine->schedule;
 
-    /* Increment the number of tasks, and set all_tasks_done to FALSE if this
-     * was the first task */
-    if(OPA_fetch_and_incr_int(&schedule->num_tasks) == 0)
-        OPA_store_int(&schedule->all_tasks_done, FALSE);
+    /* Increment the number of tasks */
+    OPA_incr_int(&schedule->num_tasks);
 
     /* Add task to task list */
     /* Lock task list mutex */
