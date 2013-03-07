@@ -40,7 +40,7 @@ AXE_task_incr_ref(AXE_task_int_t *task)
 
 
 void
-AXE_task_decr_ref(AXE_task_int_t *task)
+AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr)
 {
 #ifdef AXE_DEBUG_REF
     int rc = OPA_fetch_and_decr_int(&task->rc) - 1;
@@ -54,7 +54,12 @@ AXE_task_decr_ref(AXE_task_int_t *task)
          * (until we implement remove, etc.) */
         assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED));
 
-        AXE_task_free(task);
+        /* If we were provided a free pointer, set it to point to the task.
+         * Otherwise, free the task */
+        if(free_ptr)
+            *free_ptr = task;
+        else
+            AXE_task_free(task);
     } /* end if */
 
     return;
@@ -109,7 +114,7 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
 done:
     if(ret_value == AXE_FAIL)
         if(*task)
-            AXE_task_decr_ref(*task);
+            AXE_task_decr_ref(*task, NULL);
 
     return ret_value;
 } /* end AXE_task_create() */
@@ -142,7 +147,7 @@ AXE_task_create_barrier(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
 done:
     if(ret_value == AXE_FAIL)
         if(*task)
-            AXE_task_decr_ref(*task);
+            AXE_task_decr_ref(*task, NULL);
 
     return ret_value;
 } /* end AXE_task_create_barrier() */
@@ -212,7 +217,7 @@ AXE_task_worker(void *_task)
     #ifdef AXE_DEBUG_REF
                     printf("AXE_task_worker: decr ref: %p\n", task->sufficient_parents[i]);
     #endif /* AXE_DEBUG_REF */
-                    AXE_task_decr_ref(task->sufficient_parents[i]);
+                    AXE_task_decr_ref(task->sufficient_parents[i], NULL);
 
                     if(block) {
                         /* End of block, slide block down (if necessary) */
@@ -249,11 +254,11 @@ AXE_task_worker(void *_task)
 
             /* Remove references to all necessary parents */
             for(i = 0; i < task->num_necessary_parents; i++)
-                AXE_task_decr_ref(task->necessary_parents[i]);
+                AXE_task_decr_ref(task->necessary_parents[i], NULL);
 
             /* Remove references to all sufficient parents */
             for(i = 0; i < task->num_sufficient_parents; i++)
-                AXE_task_decr_ref(task->sufficient_parents[i]);
+                AXE_task_decr_ref(task->sufficient_parents[i], NULL);
         } /* end else */
 
         /* Update the schedule to reflect that this task is complete, and
@@ -446,6 +451,7 @@ AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     (*task)->sufficient_children = NULL;
 
     /* Schedule package will initialize task_list_next and task_list_prev */
+    (*task)->free_list_next = NULL;
 
 done:
     if(ret_value == AXE_FAIL)

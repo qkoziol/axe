@@ -56,6 +56,7 @@ struct AXE_task_int_t {
     AXE_task_int_t          **sufficient_children;
     AXE_task_int_t          *task_list_next;
     AXE_task_int_t          *task_list_prev;
+    AXE_task_int_t          *free_list_next;
 };
 
 
@@ -63,7 +64,7 @@ struct AXE_task_int_t {
  * Functions
  */
 void AXE_task_incr_ref(AXE_task_int_t *task);
-void AXE_task_decr_ref(AXE_task_int_t *task);
+void AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr);
 AXE_error_t AXE_task_create(AXE_engine_int_t *engine,
     AXE_task_int_t **task/*out*/, size_t num_necessary_parents,
     AXE_task_int_t **necessary_parents, size_t num_sufficient_parents,

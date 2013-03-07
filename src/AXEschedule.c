@@ -30,7 +30,7 @@ struct AXE_schedule_t {
     OPA_int_t               num_tasks;              /* # of tasks in scheduler */
     pthread_cond_t          wait_all_cond;          /* Condition variable for waiting for all tasks to complete */
     pthread_mutex_t         wait_all_mutex;         /* Mutex for waiting for all tasks to complete */
-    AXE_task_int_t          task_list_head;         /* Sentinel task for head of task list (only used for destroying all tasks) */
+    AXE_task_int_t          task_list_head;         /* Sentinel task for head of task list */
     AXE_task_int_t          task_list_tail;         /* Sentinel task for tail of task list */
     pthread_mutex_t         task_list_mutex;        /* Mutex for task list.  Must not be taken while holding a task mutex! */
 };
@@ -488,6 +488,8 @@ AXE_error_t
 AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 {
     AXE_task_int_t *child_task;
+    AXE_task_int_t *free_list_head = NULL;
+    AXE_task_int_t **free_list_tail_ptr = &free_list_head;
     AXE_schedule_t *schedule;
     AXE_thread_t *thread;
     AXE_status_t prev_status;
@@ -557,11 +559,20 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
             OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AXE_task_int_t, scheduled_queue_hdr);
         } /* end if */
 
-        /* Decrement ref count on child */
+        /* Decrement ref count on child.  Need to delay freeing the child if the
+         * ref count drops to zero because we hold a task mutex and freeing the
+         * task takes the task list mutex, which could cause a deadlock as some
+         * functions take task mutexes while holding the task list mutex. */
 #ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p nec", child_task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
-        AXE_task_decr_ref(child_task);
+        AXE_task_decr_ref(child_task, free_list_tail_ptr);
+
+        /* Advance free_list_tail_ptr if it was set */
+        if(*free_list_tail_ptr) {
+            free_list_tail_ptr = &(*free_list_tail_ptr)->free_list_next;
+            assert(!(*free_list_tail_ptr));
+        } /* end if */
     } /* end for */
 
     /* Update all sufficient children */
@@ -610,11 +621,20 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
             } /* end if */
         } /* end if */
 
-        /* Decrement ref count on child */
+        /* Decrement ref count on child.  Need to delay freeing the child if the
+         * ref count drops to zero because we hold a task mutex and freeing the
+         * task takes the task list mutex, which could cause a deadlock as some
+         * functions take task mutexes while holding the task list mutex. */
 #ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p suf", child_task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
-        AXE_task_decr_ref(child_task);
+        AXE_task_decr_ref(child_task, free_list_tail_ptr);
+
+        /* Advance free_list_tail_ptr if it was set */
+        if(*free_list_tail_ptr) {
+            free_list_tail_ptr = &(*free_list_tail_ptr)->free_list_next;
+            assert(!(*free_list_tail_ptr));
+        } /* end if */
     } /* end for */
 
     /* Keep task mutex locked while we change status to done, so AXE_task_wait
@@ -675,6 +695,14 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
             ERROR;
     } /* end else */
 
+    /* Free tasks on the free list */
+    while(free_list_head) {
+        child_task = free_list_head;
+        free_list_head = child_task->free_list_next;
+        if(AXE_task_free(child_task) != AXE_SUCCEED)
+            ERROR;
+    } /* end while */
+
     /* Note: if we ever switch to a lockfree algorithm, we will need to add a
      * read/write barrier here to ensure consistency across client operator
      * tasks and to ensure that the status is updated before decrementing the
@@ -685,7 +713,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 #ifdef AXE_DEBUG_REF
     printf("AXE_schedule_finish: decr ref: %p\n", *task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
-    AXE_task_decr_ref(*task);
+    AXE_task_decr_ref(*task, NULL);
 
     /* Now try to launch all scheduled tasks, until we run out of tasks or run
      * out of threads.  If we run out of threads first, we will return the last

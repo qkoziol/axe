@@ -32,3 +32,5 @@ do { \
 #define SKIPPED()       do {puts(" -SKIP-");fflush(stdout);} while(0)
 #define TEST_ERROR      do {FAILED(); AT(); goto error;} while(0)
 
+//#define TEST_EXPRESS
+
