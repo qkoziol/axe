@@ -4050,6 +4050,7 @@ test_num_threads_helper(size_t num_necessary_parents,
      * running, and the others are scheduled.  Save the index of a scheduled
      * task. */
     nrunning = 0;
+    sched_i = -1;
     for(i = 0; i <= 3; i++) {
         /* Make sure if the signal was sent the task is running */
         AXEget_status(task[i], &status);
@@ -4065,6 +4066,8 @@ test_num_threads_helper(size_t num_necessary_parents,
         } /* end else */
     } /* end for */
     if(nrunning != 2)
+        TEST_ERROR;
+    if((sched_i < 0) || (sched_i > 3))
         TEST_ERROR;
 
     /* Remove the scheduled task */
@@ -4213,6 +4216,7 @@ test_num_threads_helper(size_t num_necessary_parents,
      * running, and the others are scheduled.  Save the index of a scheduled
      * task. */
     nrunning = 0;
+    sched_i = -1;
     for(i = 1; i <= 4; i++) {
         /* Make sure if the signal was sent the task is running */
         AXEget_status(task[i], &status);
@@ -4228,6 +4232,8 @@ test_num_threads_helper(size_t num_necessary_parents,
         } /* end else */
     } /* end for */
     if(nrunning != 2)
+        TEST_ERROR;
+    if((sched_i < 0) || (sched_i > 4))
         TEST_ERROR;
 
     /* Remove the scheduled task */
