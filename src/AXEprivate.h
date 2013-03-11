@@ -46,6 +46,7 @@ extern OPA_int_t AXE_quiet_g;
 /*
  * Private macros
  */
+/* Macro to report an error and return AXE_FAIL in most functions */
 #define ERROR \
 do { \
     if(OPA_load_int(&AXE_quiet_g) == 0) \
@@ -54,6 +55,7 @@ do { \
     goto done; \
 } while(0)
 
+/* Version of ERROR where a different value must be returned */
 #define ERROR_RET(RET) \
 do { \
     if(OPA_load_int(&AXE_quiet_g) == 0) \

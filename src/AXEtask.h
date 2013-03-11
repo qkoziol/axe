@@ -29,34 +29,36 @@
 /*
  * Typedefs
  */
+/* Task structure.  Includes fields used by the scheduler, so it must be present
+ * in a header visible to the scheduler. */
 struct AXE_task_int_t {
     /* Fields used for the callback */
-    AXE_task_op_t           op;
-    size_t                  num_necessary_parents;
-    AXE_task_int_t          **necessary_parents;
-    size_t                  num_sufficient_parents;
-    AXE_task_int_t          **sufficient_parents;
-    void                    *op_data;
+    AXE_task_op_t           op;                     /* Client task callback function */
+    size_t                  num_necessary_parents;  /* Number of necessary parent tasks */
+    AXE_task_int_t          **necessary_parents;    /* Array of necessary parent tasks */
+    size_t                  num_sufficient_parents; /* Number of sufficient parent tasks */
+    AXE_task_int_t          **sufficient_parents;   /* Array of sufficient parent tasks */
+    void                    *op_data;               /* Client task callback data pointer */
 
     /* Internal fields */
-    OPA_Queue_element_hdr_t scheduled_queue_hdr;
-    AXE_engine_int_t        *engine;
-    AXE_task_free_op_data_t free_op_data;
-    pthread_mutex_t         task_mutex;
-    pthread_cond_t          wait_cond;
-    OPA_int_t               status;
-    OPA_int_t               rc;
-    OPA_int_t               sufficient_complete;
-    OPA_int_t               num_conditions_complete;     /* Number of needed conditions = num_necessary_parents + 2 (1 for all sufficient parents (even 0), 1 for initialization) */
-    size_t                  num_necessary_children;
-    size_t                  necessary_children_nalloc;
-    AXE_task_int_t          **necessary_children;
-    size_t                  num_sufficient_children;
-    size_t                  sufficient_children_nalloc;
-    AXE_task_int_t          **sufficient_children;
-    AXE_task_int_t          *task_list_next;
-    AXE_task_int_t          *task_list_prev;
-    AXE_task_int_t          *free_list_next;
+    OPA_Queue_element_hdr_t scheduled_queue_hdr;    /* Header for insertion into the schedule's "scheduled_queue" */
+    AXE_engine_int_t        *engine;                /* Pointer to the engine this task resides in */
+    AXE_task_free_op_data_t free_op_data;           /* Callback provided to free op_data */
+    pthread_mutex_t         task_mutex;             /* Mutex locked for making certain changes to this struct */
+    pthread_cond_t          wait_cond;              /* Condition variable for signaling threads waiting for this task to complete */
+    OPA_int_t               status;                 /* Status of this task */
+    OPA_int_t               rc;                     /* Reference count of this task */
+    OPA_int_t               sufficient_complete;    /* Boolean variable indicating if all sufficient parents are complete */
+    OPA_int_t               num_conditions_complete; /* Number of conditions complete.  Number of conditions needed in order to be scheduled = num_necessary_parents + 2 (1 for all sufficient parents (even 0), 1 for initialization). */
+    size_t                  num_necessary_children; /* Number of necessary child tasks */
+    size_t                  necessary_children_nalloc; /* Size of necessary_children in elements */
+    AXE_task_int_t          **necessary_children;   /* Array of necessary child tasks */
+    size_t                  num_sufficient_children; /* Number of sufficient child tasks */
+    size_t                  sufficient_children_nalloc; /* size of sufficient_children in elements */
+    AXE_task_int_t          **sufficient_children;  /* Array of sufficient child tasks */
+    AXE_task_int_t          *task_list_next;        /* Next task in task list */
+    AXE_task_int_t          *task_list_prev;        /* Previous task in task list */
+    AXE_task_int_t          *free_list_next;        /* Next task in free list.  Should be NULL unless rc has dropped to 0 and it is about to be freed by AXE_schedule_finish(). */
 };
 
 

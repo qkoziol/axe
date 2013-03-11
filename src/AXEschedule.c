@@ -22,6 +22,7 @@
 /*
  * Local typedefs
  */
+/* Schedule structure */
 struct AXE_schedule_t {
     OPA_Queue_info_t        scheduled_queue;        /* Queue of tasks that are "scheduled" (can be executed now) */
     pthread_mutex_t         scheduled_queue_mutex;  /* Mutex for dequeueing from scheduled_queue */
@@ -59,6 +60,23 @@ OPA_int_t AXE_debug_nadds = OPA_INT_T_INITIALIZER(0);
 #endif /* AXE_DEBUG_PERF */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_create
+ *
+ * Purpose:     Creates a schedule for a thread pool with the specified
+ *              number of threads.  The scheduler needs to know the numer
+ *              of threads in order to guarantee that at least that many
+ *              threads will be available for simultaneous executiong, in
+ *              case the application algorithm depends on it.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_create(size_t num_threads, AXE_schedule_t **schedule/*out*/)
 {
@@ -138,6 +156,21 @@ done:
 } /* end AXE_schedule_create() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_worker_running
+ *
+ * Purpose:     Informs the scheduler that a worker is running, and
+ *              gauaranteed to check the schedule for new tasks before
+ *              returning to the thread pool.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 AXE_schedule_worker_running(AXE_schedule_t *schedule)
 {
@@ -151,6 +184,20 @@ AXE_schedule_worker_running(AXE_schedule_t *schedule)
 } /* end AXE_schedule_worker_running() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_add
+ *
+ * Purpose:     Adds the specified task to the schedule.  Updates parents'
+ *              "children" arrays and calls AXE_schedule_add_common().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_add(AXE_task_int_t *task)
 {
@@ -360,6 +407,22 @@ done:
 } /* end AXE_schedule_add() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_add_barrier
+ *
+ * Purpose:     Adds the specified task as a barrier task to the schedule.
+ *              Adds all uncomplete and uncanceled tasks in the schedule
+ *              without necessary children as necessary parents of task,
+ *              then calls AXE_schedule_add_common().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_add_barrier(AXE_task_int_t *task)
 {
@@ -512,6 +575,26 @@ done:
 } /* end AXE_schedule_add_barrier() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_finish
+ *
+ * Purpose:     Updates the schedule to account for the specified task
+ *              completing, and updates the task.  Updates all child
+ *              tasks, enqueueing any which became schedulable as a
+ *              result, signals waiting threads, then attempts to launch
+ *              all tasks in the scheduled task queue until it runs out of
+ *              tasks or runs out of threads.  If it runs out of threads
+ *              first, it will return a dequeued task in *task, for
+ *              execution in this thread.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 {
@@ -860,6 +943,20 @@ done:
 } /* end AXE_schedule_finish() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_wait_all
+ *
+ * Purpose:     Blocks until all tasks in the specified schedule are
+ *              either complete or canceled.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_wait_all(AXE_schedule_t *schedule)
 {
@@ -888,6 +985,23 @@ done:
 } /* end AXE_schedule_wait_all() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_cancel
+ *
+ * Purpose:     Attempts to cancel the specified task.  The result of the
+ *              attempt is returned in *remove_status.  Sends signals to
+ *              waiting threads as appropriate.  If the caller hold the
+ *              task mutex for task, have_task_mutex should be set to
+ *              TRUE, otherwise have_task_mutex should be set to FALSE.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
     _Bool have_task_mutex)
@@ -974,6 +1088,21 @@ done:
 } /* end AXE_schedule_cancel */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_cancel_all
+ *
+ * Purpose:     Attempts to cancel all tasks in the specified schedule.
+ *              The result of the attempt is returned in *remove_status.
+ *              Sends signals to waiting threads as appropriate.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_cancel_all(AXE_schedule_t *schedule,
     AXE_remove_status_t *remove_status)
@@ -1024,7 +1153,23 @@ done:
 } /* end AXE_schedule_cancel_all() */
 
 
-/* This function must *not* be called while holding a task mutex! */
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_remove_from_list
+ *
+ * Purpose:     Removes the specified task from the task list.  Should
+ *              only be called when freeing the task, otherwise the
+ *              library may not be able to clean it up when terminating
+ *              the engine.  Must *not* be called while holding a task
+ *              mutex!.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_remove_from_list(AXE_task_int_t *task)
 {
@@ -1053,6 +1198,22 @@ done:
 } /* end AXE_schedule_remove_from_list() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_closing
+ *
+ * Purpose:     Marks the specified schedule as "closing", preventing the
+ *              scheduler from going out of its way to guarantee thread
+ *              availability (which may not be possible because some
+ *              threads may have shut down).
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 AXE_schedule_closing(AXE_schedule_t *schedule)
 {
@@ -1064,6 +1225,19 @@ AXE_schedule_closing(AXE_schedule_t *schedule)
 } /* end AXE_schedule_closing() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_free
+ *
+ * Purpose:     Frees the specified schedule and all tasks it contains.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_schedule_free(AXE_schedule_t *schedule)
 {
@@ -1121,6 +1295,24 @@ done:
 } /* end AXE_schedule_free() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_add_common
+ *
+ * Purpose:     Code needed by both AXE_schedule_add() and
+ *              AXE_schedule_add_barrier() to add a task to the schedule.
+ *              Add the task to the task list, and if it can be run
+ *              immediately, attempts to dequeue and run a single task.
+ *              If no threads are available, the order of tasks in the
+ *              scheduled queue is maintained.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 static AXE_error_t
 AXE_schedule_add_common(AXE_task_int_t *task)
 {

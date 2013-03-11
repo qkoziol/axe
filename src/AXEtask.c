@@ -26,6 +26,21 @@ static AXE_error_t AXE_task_init(AXE_engine_int_t *engine,
     AXE_task_free_op_data_t free_op_data);
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_incr_ref
+ *
+ * Purpose:     Increments the reference count on the specified task.
+ *              Should be called when a new reference to the task is
+ *              created.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 AXE_task_incr_ref(AXE_task_int_t *task)
 {
@@ -39,6 +54,27 @@ AXE_task_incr_ref(AXE_task_int_t *task)
 } /* end AXE_task_incr_ref() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_decr_ref
+ *
+ * Purpose:     Decrements the reference count on the specified task,
+ *              freeing the task if it drops to zero.  Should be called
+ *              when a reference to the task is destroyed.  If free_ptr is
+ *              not NULL, then if the reference drops to zero, task is not
+ *              freed and *free_ptr is set to task.  This is for the case
+ *              where the caller holds a task mutex, in which case it is
+ *              not safe to free the task as that would require taking the
+ *              task list mutex, which must never happen while holding a
+ *              task mutex.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr)
 {
@@ -66,6 +102,20 @@ AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr)
 } /* end AXE_task_decr_ref() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_create
+ *
+ * Purpose:     Internal routine to create a task.  Allocates and
+ *              initializes the task and calls AXE_schedule_create().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     size_t num_necessary_parents, AXE_task_int_t **necessary_parents,
@@ -120,6 +170,20 @@ done:
 } /* end AXE_task_create() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_create_barrier
+ *
+ * Purpose:     Internal routine to create a barrier task.  Allocates and
+ *              initializes the task and calls AXE_schedule_create().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_task_create_barrier(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
@@ -153,6 +217,19 @@ done:
 } /* end AXE_task_create_barrier() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_get_op_data
+ *
+ * Purpose:     Internal routine to retrieve a task's op_data.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/)
 {
@@ -166,6 +243,19 @@ AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/)
 } /* end AXE_task_get_op_data() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_get_op_data
+ *
+ * Purpose:     Internal routine to query a task's status.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 AXE_task_get_status(AXE_task_int_t *task, AXE_status_t *status/*out*/)
 {
@@ -179,6 +269,23 @@ AXE_task_get_status(AXE_task_int_t *task, AXE_status_t *status/*out*/)
 } /* end AXE_task_get_op_data() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_worker
+ *
+ * Purpose:     Internal task worker routine.  Repeatedly sets up the
+ *              sufficient_parents array for the application callback,
+ *              makes the application callback, and calls
+ *              AXE_schedule_finish() until it has no more tasks to
+ *              execute.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_task_worker(void *_task)
 {
@@ -273,6 +380,20 @@ done:
 } /* end AXE_task_worker() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_wait
+ *
+ * Purpose:     Blocks until the specified task either completes or is
+ *              canceled.  If the task is canceled, returns AXE_FAIL.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_task_wait(AXE_task_int_t *task)
 {
@@ -319,6 +440,21 @@ done:
 } /* end AXE_task_wait() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_cancel_leaf
+ *
+ * Purpose:     Internal routine to cancel a leaf task.  Checks if the
+ *              task has any children, and calls AXE_schedule_cancel() if
+ *              not.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_task_cancel_leaf(AXE_task_int_t *task, AXE_remove_status_t *remove_status)
 {
@@ -360,6 +496,19 @@ done:
 } /* end AXE_task_cancel_leaf() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_free
+ *
+ * Purpose:     Frees the specified task.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_task_free(AXE_task_int_t *task)
 {
@@ -403,6 +552,21 @@ done:
 } /* end AXE_task_free */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_init
+ *
+ * Purpose:     Allocates and initializes most fields of a new task.  Code
+ *              shared between AXE_task_create() and
+ *              AXE_task_create_barrier().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 static AXE_error_t
 AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)

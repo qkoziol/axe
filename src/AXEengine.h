@@ -24,6 +24,7 @@
 /*
  * Typedefs
  */
+/* An engine consists of a schedule and a thread pool */
 struct AXE_engine_int_t {
     AXE_schedule_t          *schedule;
     AXE_thread_pool_t       *thread_pool;

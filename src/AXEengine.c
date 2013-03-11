@@ -27,10 +27,25 @@ static void AXE_init(void);
 /*
  * Local variables
  */
-static pthread_once_t AXE_init_once_g = PTHREAD_ONCE_INIT;
-static AXE_error_t AXE_init_status_g = AXE_SUCCEED;
+static pthread_once_t AXE_init_once_g = PTHREAD_ONCE_INIT;  /* Handle to execute AXE_init() exactly once in a process */
+static AXE_error_t AXE_init_status_g = AXE_SUCCEED;         /* Return value of AXE_init() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_engine_create
+ *
+ * Purpose:     Internal routine to create an engine.  Allocates engine
+ *              struct and calls AXE_schedule_create() and
+ *              AXE_schedule_free().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_engine_create(size_t num_threads, AXE_engine_int_t **engine/*out*/)
 {
@@ -70,6 +85,23 @@ done:
 } /* end AXE_engine_create() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_engine_free
+ *
+ * Purpose:     Frees an engine and all memory associated with it.
+ *              Immediately cancels all tasks, then calls
+ *              AXE_thread_pool_free() (which blocks until all currently
+ *              running tasks complete) and AXE_schedule_free() before
+ *              freeing the engine struct.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXE_engine_free(AXE_engine_int_t *engine)
 {
@@ -105,6 +137,22 @@ done:
 } /* end AXE_engine_free() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXE_init
+ *
+ * Purpose:     Performs any one-time initialization on the library.
+ *              Right now only calls OPA_Shm_asymm_init(), which is not
+ *              necessary until and engine is created, so this function is
+ *              only launched by AXE_engine_create().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 static void
 AXE_init(void)
 {

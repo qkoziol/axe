@@ -26,6 +26,7 @@ typedef struct AXE_thread_pool_t AXE_thread_pool_t;
 
 typedef struct AXE_thread_t AXE_thread_t;
 
+/* Function signature for internal worker tasks launched by the thread pool */
 typedef AXE_error_t (*AXE_thread_op_t)(void *op_data);
 
 
