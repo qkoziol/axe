@@ -79,6 +79,14 @@ do { \
 //#define AXE_DEBUG
 //#define AXE_DEBUG_REF
 //#define AXE_DEBUG_LOCK
+//#define AXE_DEBUG_NTASKS
+//#define AXE_DEBUG_PERF
+
+#ifdef AXE_DEBUG_PERF
+extern OPA_int_t AXE_debug_nspins_add;
+extern OPA_int_t AXE_debug_nspins_finish;
+extern OPA_int_t AXE_debug_nadds;
+#endif /* AXE_DEBUG_PERF */
 
 
 #endif /* AXE_PRIVATE_H_INCLUDED */

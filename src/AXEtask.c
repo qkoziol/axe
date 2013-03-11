@@ -393,6 +393,9 @@ AXE_task_free(AXE_task_int_t *task)
         free(task->sufficient_children);
 
     /* Free task struct */
+#ifndef NDEBUG
+    memset(task, 0, sizeof(*task));
+#endif /* NDEBUG */
     free(task);
 
 done:

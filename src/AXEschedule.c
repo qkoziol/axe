@@ -33,6 +33,13 @@ struct AXE_schedule_t {
     AXE_task_int_t          task_list_head;         /* Sentinel task for head of task list */
     AXE_task_int_t          task_list_tail;         /* Sentinel task for tail of task list */
     pthread_mutex_t         task_list_mutex;        /* Mutex for task list.  Must not be taken while holding a task mutex! */
+#ifdef AXE_DEBUG_NTASKS
+    OPA_int_t               nadds;
+    OPA_int_t               nenqueues;
+    OPA_int_t               ndequeues;
+    OPA_int_t               ncomplete;
+    OPA_int_t               ncancels;
+#endif /* AXE_DEBUG_NTASKS */
 };
 
 
@@ -40,6 +47,16 @@ struct AXE_schedule_t {
  * Local functions
  */
 static AXE_error_t AXE_schedule_add_common(AXE_task_int_t *task);
+
+
+/*
+ * Debugging
+ */
+#ifdef AXE_DEBUG_PERF
+OPA_int_t AXE_debug_nspins_add = OPA_INT_T_INITIALIZER(0);
+OPA_int_t AXE_debug_nspins_finish = OPA_INT_T_INITIALIZER(0);
+OPA_int_t AXE_debug_nadds = OPA_INT_T_INITIALIZER(0);
+#endif /* AXE_DEBUG_PERF */
 
 
 AXE_error_t
@@ -94,6 +111,14 @@ AXE_schedule_create(size_t num_threads, AXE_schedule_t **schedule/*out*/)
         ERROR;
     is_task_list_mutex_init = TRUE;
 
+#ifdef AXE_DEBUG_NTASKS
+    OPA_store_int(&(*schedule)->nadds, 0);
+    OPA_store_int(&(*schedule)->nenqueues, 0);
+    OPA_store_int(&(*schedule)->ndequeues, 0);
+    OPA_store_int(&(*schedule)->ncomplete, 0);
+    OPA_store_int(&(*schedule)->ncancels, 0);
+#endif /* AXE_DEBUG_NTASKS */
+
 done:
     if(ret_value == AXE_FAIL)
         if(schedule) {
@@ -116,8 +141,11 @@ done:
 void
 AXE_schedule_worker_running(AXE_schedule_t *schedule)
 {
+#ifdef NDEBUG
     OPA_decr_int(&schedule->sleeping_workers);
-    assert(OPA_load_int(&schedule->sleeping_workers) >= 0);
+#else /* NDEBUG */
+    assert(OPA_fetch_and_decr_int(&schedule->sleeping_workers) > 0);
+#endif /* NDEBUG */
 
     return;
 } /* end AXE_schedule_worker_running() */
@@ -557,6 +585,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 
             /* Add task to scheduled queue */
             OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AXE_task_int_t, scheduled_queue_hdr);
+#ifdef AXE_DEBUG_NTASKS
+            OPA_incr_int(&schedule->nenqueues);
+#endif /* AXE_DEBUG_NTASKS */
         } /* end if */
 
         /* Decrement ref count on child.  Need to delay freeing the child if the
@@ -618,6 +649,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 
                 /* Add task to scheduled queue */
                 OPA_Queue_enqueue(&schedule->scheduled_queue, child_task, AXE_task_int_t, scheduled_queue_hdr);
+#ifdef AXE_DEBUG_NTASKS
+                OPA_incr_int(&schedule->nenqueues);
+#endif /* AXE_DEBUG_NTASKS */
             } /* end if */
         } /* end if */
 
@@ -651,7 +685,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
      * wait_all implementation as well.  -NAF */
 
     /* Send signals to threads waiting on this thread to complete (and possibly
-     * those waiting on al threads), but only if it was not previously canceled
+     * those waiting on all threads), but only if it was not previously canceled
      * (if it was canceled then the signals were already sent). */
     if(prev_status == AXE_TASK_RUNNING) {
         /* Signal threads waiting on this task to complete */
@@ -665,28 +699,29 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
         if(0 != pthread_mutex_unlock(&(*task)->task_mutex))
             ERROR;
 
-        /* Decrement the number of tasks and if this was the last task signal
-         * threads waiting for all tasks to complete.  Since we will only change
-         * this from a "not-signaled" to "signaled" state, and not the other way
-         * around, we can get away with not locking the mutex until after the
-         * decr_and_test.  Since the waiter locks the mutex before checking
-         * num_tasks the signaller cannot send the signal before the waiter
-         * waits on the signal. */
-        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
-            /* Lock wait_all mutex */
-            if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
-                ERROR;
+#ifdef AXE_DEBUG_NTASKS
+        OPA_incr_int(&schedule->ncomplete);
+#endif /* AXE_DEBUG_NTASKS */
 
+        /* Lock wait_all mutex */
+        if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
+            ERROR;
+
+        /* Decrement the number of tasks and if this was the last task signal
+         * threads waiting for all tasks to complete */
+        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
             /* Signal threads waiting on all tasks to complete */
             if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
                 ERROR;
-
-            /* Unlock wait_all mutex */
-            if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
-                ERROR;
         } /* end if */
+
+        /* Unlock wait_all mutex */
+        if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
+            ERROR;
     } /* end if */
     else {
+        assert(prev_status = AXE_TASK_CANCELED);
+
         /* Unlock task mutex */
 #ifdef AXE_DEBUG_LOCK
         printf("AXE_schedule_finish: unlock task_mutex: %p\n", &(*task)->task_mutex); fflush(stdout);
@@ -715,6 +750,12 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 #endif /* AXE_DEBUG_REF */
     AXE_task_decr_ref(*task, NULL);
 
+    /* This function must not use the supplied task after this point, as it
+     * could be freed by the call to AXE_task_decr_ref() */
+#ifndef NDEBUG
+    *task = NULL;
+#endif /* NDEBUG */
+
     /* Now try to launch all scheduled tasks, until we run out of tasks or run
      * out of threads.  If we run out of threads first, we will return the last
      * task dequeued to the caller, which will run it in this thread. */
@@ -742,11 +783,17 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
         } /* end if */
         else {
             /* We got a task so we are not sleeping any more */
+#ifdef NDEBUG
             OPA_decr_int(&schedule->sleeping_workers);
+#else /* NDEBUG */
+            assert(OPA_fetch_and_decr_int(&schedule->sleeping_workers) > 0);
+#endif /* NDEBUG */
 
             /* Retrieve task from scheduled queue */
             OPA_Queue_dequeue(&schedule->scheduled_queue, *task, AXE_task_int_t, scheduled_queue_hdr);
-
+#ifdef AXE_DEBUG_NTASKS
+            OPA_incr_int(&schedule->ndequeues);
+#endif /* AXE_DEBUG_NTASKS */
 #ifdef AXE_DEBUG
             printf("AXE_schedule_finish: dequeue %p\n", *task); fflush(stdout);
 #endif /* AXE_DEBUG */
@@ -795,6 +842,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
                      * soon to be finished.  Give the finishing workers a chance
                      * to finish. */
                     AXE_YIELD();
+#ifdef AXE_DEBUG_PERF
+                    OPA_incr_int(&AXE_debug_nspins_finish);
+#endif /* AXE_DEBUG_PERF */
                 } /* end else */
             } while(1);
 
@@ -803,7 +853,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
                 if(AXE_thread_pool_launch(thread, AXE_task_worker, *task) != AXE_SUCCEED)
                     ERROR;
         } /* end else */
-    } while(task && thread);
+    } while(thread);
 
 done:
     return ret_value;
@@ -817,13 +867,7 @@ AXE_schedule_wait_all(AXE_schedule_t *schedule)
 
     assert(schedule);
 
-    /* Lock wait_all mutex.  Do so before checking the status so we know that
-     * (together with the similar mutex in AXE_schedule_finish()) if num_tasks
-     * is not 0 that we will be woken up from pthread_cond_wait() when the task
-     * is complete, i.e. the signal will not be sent before this thread begins
-     * waiting.  Note that AXE_schedule_finish() could decrement num_tasks
-     * after this thread checks num_tasks and before this thread waits, but in
-     * that case it cannot send the signal until after this thread waits. */
+    /* Lock wait_all mutex */
     if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
         ERROR;
 
@@ -832,6 +876,8 @@ AXE_schedule_wait_all(AXE_schedule_t *schedule)
         /* Wait for signal */
         if(0 != pthread_cond_wait(&schedule->wait_all_cond, &schedule->wait_all_mutex))
             ERROR;
+
+    assert(OPA_load_int(&schedule->num_tasks) == 0);
 
     /* Unlock wait_all mutex */
     if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
@@ -872,6 +918,10 @@ AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
         if(remove_status)
             *remove_status = AXE_CANCELED;
 
+#ifdef AXE_DEBUG_NTASKS
+        OPA_incr_int(&schedule->ncancels);
+#endif /* AXE_DEBUG_NTASKS */
+
         /* Signal threads waiting on this task to complete */
         if(0 != pthread_cond_broadcast(&task->wait_cond))
             ERROR;
@@ -883,26 +933,21 @@ AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
         if(0 != pthread_mutex_unlock(&task->task_mutex))
             ERROR;
 
-        /* Decrement the number of tasks and if this was the last task signal
-         * threads waiting for all tasks to complete.  Since we will only change
-         * this from a "not-signaled" to "signaled" state, and not the other way
-         * around, we can get away with not locking the mutex until after the
-         * decr_and_test.  Since the waiter locks the mutex before checking
-         * num_tasks the signaller cannot send the signal before the waiter
-         * waits on the signal. */
-        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
-            /* Lock wait_all mutex */
-            if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
-                ERROR;
+        /* Lock wait_all mutex */
+        if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
+            ERROR;
 
+        /* Decrement the number of tasks and if this was the last task signal
+         * threads waiting for all tasks to complete */
+        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
             /* Signal threads waiting on all tasks to complete */
             if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
                 ERROR;
-
-            /* Unlock wait_all mutex */
-            if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
-                ERROR;
         } /* end if */
+
+        /* Unlock wait_all mutex */
+        if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
+            ERROR;
     } /* end if */
     else {
         /* Unlock task mutex */
@@ -939,6 +984,10 @@ AXE_schedule_cancel_all(AXE_schedule_t *schedule,
 
     assert(schedule);
 
+#ifdef AXE_DEBUG_NTASKS
+    printf("sca: nadds: %d, nenqs: %d, ndqs: %d, ncmplt: %d, ncanc: %d ntasks: %d\n", OPA_load_int(&schedule->nadds), OPA_load_int(&schedule->nenqueues), OPA_load_int(&schedule->ndequeues), OPA_load_int(&schedule->ncomplete), OPA_load_int(&schedule->ncancels), OPA_load_int(&schedule->num_tasks));
+#endif /* AXE_DEBUG_NTASKS */
+
     /* Start remove_status as AXE_ALL_DONE, so the first task sets remove_status
      * to its remove status */
     if(remove_status)
@@ -953,6 +1002,8 @@ AXE_schedule_cancel_all(AXE_schedule_t *schedule,
     for(task = schedule->task_list_head.task_list_next;
             task != &schedule->task_list_tail;
             task = task->task_list_next) {
+        assert(task->engine->schedule == schedule);
+
         /* Cancel task */
         if(AXE_schedule_cancel(task, &task_remove_status, FALSE) != AXE_SUCCEED)
             ERROR;
@@ -1022,6 +1073,10 @@ AXE_schedule_free(AXE_schedule_t *schedule)
 
     assert(schedule);
 
+#ifdef AXE_DEBUG_NTASKS
+    printf("nadds: %d, nenqs: %d, ndqs: %d, ncmplt: %d, ncanc: %d\n", OPA_load_int(&schedule->nadds), OPA_load_int(&schedule->nenqueues), OPA_load_int(&schedule->ndequeues), OPA_load_int(&schedule->ncomplete), OPA_load_int(&schedule->ncancels));
+#endif /* AXE_DEBUG_NTASKS */
+
     /* Free all remaining tasks.  They should all be done or canceled. */
     for(task = schedule->task_list_head.task_list_next;
             task != &schedule->task_list_tail;
@@ -1056,6 +1111,9 @@ AXE_schedule_free(AXE_schedule_t *schedule)
         ERROR;
 
     /* Free schedule */
+#ifndef NDEBUG
+    memset(schedule, 0, sizeof(*schedule));
+#endif /* NDEBUG */
     free(schedule);
 
 done:
@@ -1067,15 +1125,23 @@ static AXE_error_t
 AXE_schedule_add_common(AXE_task_int_t *task)
 {
     AXE_schedule_t *schedule;
+    AXE_thread_pool_t *thread_pool;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
     assert(task->engine);
 
     schedule = task->engine->schedule;
+    thread_pool = task->engine->thread_pool;
 
     /* Increment the number of tasks */
     OPA_incr_int(&schedule->num_tasks);
+#ifdef AXE_DEBUG_NTASKS
+    OPA_incr_int(&schedule->nadds);
+#endif /* AXE_DEBUG_NTASKS */
+#ifdef AXE_DEBUG_PERF
+    OPA_incr_int(&AXE_debug_nadds);
+#endif /* AXE_DEBUG_PERF */
 
     /* Add task to task list */
     /* Lock task list mutex */
@@ -1127,6 +1193,16 @@ AXE_schedule_add_common(AXE_task_int_t *task)
 
         /* Add task to scheduled queue */
         OPA_Queue_enqueue(&schedule->scheduled_queue, task, AXE_task_int_t, scheduled_queue_hdr);
+#ifdef AXE_DEBUG_NTASKS
+        OPA_incr_int(&schedule->nenqueues);
+#endif /* AXE_DEBUG_NTASKS */
+
+        /* This function must not use task after this point, as it could be
+         * executed (and freed) by another thread at any point after we enqueue
+         * it */
+#ifndef NDEBUG
+        task = NULL;
+#endif /* NDEBUG */
 
         /*
          * Now try to execute the event
@@ -1144,7 +1220,7 @@ AXE_schedule_add_common(AXE_task_int_t *task)
          * busy and will attempt to acquire a task when they complete */
         do {
             /* Try to retrieve a thread from the thread pool */
-            if(AXE_thread_pool_try_acquire(task->engine->thread_pool, &thread) != AXE_SUCCEED)
+            if(AXE_thread_pool_try_acquire(thread_pool, &thread) != AXE_SUCCEED)
                 ERROR;
 
             /* If we have a thread we can exit */
@@ -1173,6 +1249,9 @@ AXE_schedule_add_common(AXE_task_int_t *task)
                  * to be finished.  Give the finishing workers a chance to
                  * finish. */
                 AXE_YIELD();
+#ifdef AXE_DEBUG_PERF
+                OPA_incr_int(&AXE_debug_nspins_add);
+#endif /* AXE_DEBUG_PERF */
             } /* end else */
         } while(1);
 
@@ -1197,7 +1276,9 @@ AXE_schedule_add_common(AXE_task_int_t *task)
             else {
                 /* Retrieve task from scheduled queue */
                 OPA_Queue_dequeue(&schedule->scheduled_queue, exec_task, AXE_task_int_t, scheduled_queue_hdr);
-
+#ifdef AXE_DEBUG_NTASKS
+                OPA_incr_int(&schedule->ndequeues);
+#endif /* AXE_DEBUG_NTASKS */
 #ifdef AXE_DEBUG
 printf("AXE_schedule_add: dequeue %p\n", exec_task); fflush(stdout);
 #endif /* AXE_DEBUG */

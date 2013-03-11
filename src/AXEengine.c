@@ -75,6 +75,10 @@ AXE_engine_free(AXE_engine_int_t *engine)
 {
     AXE_error_t ret_value = AXE_SUCCEED;
 
+#ifdef AXE_DEBUG_NTASKS
+    printf("engine: %p\n", engine);
+#endif /* AXE_DEBUG_NTASKS */
+
     /* Mark all tasks as canceled */
     if(AXE_schedule_cancel_all(engine->schedule, NULL) != AXE_SUCCEED)
         ERROR;
@@ -91,6 +95,9 @@ AXE_engine_free(AXE_engine_int_t *engine)
         ERROR;
 
     /* Free engine */
+#ifndef NDEBUG
+    memset(engine, 0, sizeof(*engine));
+#endif /* NDEBUG */
     free(engine);
 
 done:

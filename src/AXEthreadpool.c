@@ -288,6 +288,9 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
 #endif /* AXE_DEBUG */
 
         /* Free the thread */
+#ifndef NDEBUG
+        memset(thread, 0, sizeof(*thread));
+#endif /* NDEBUG */
         free(thread);
     } /* end for */
 
@@ -303,6 +306,9 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
     free(thread_pool->threads);
 
     /* Free schedule */
+#ifndef NDEBUG
+    memset(thread_pool, 0, sizeof(*thread_pool));
+#endif /* NDEBUG */
     free(thread_pool);
 
 done:

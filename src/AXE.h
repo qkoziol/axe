@@ -20,35 +20,60 @@
 /*
  * Public typedefs
  */
+/* AXE_int_t - handle for an asynchronously executed task */
 typedef struct AXE_task_int_t AXE_task_int_t;
 typedef AXE_task_int_t *AXE_task_t;
 
+/* AXE_engine_t - handle for an asynchronous engine containing tasks */
 typedef struct AXE_engine_int_t AXE_engine_int_t;
 typedef AXE_engine_int_t *AXE_engine_t;
 
+/* The status of a task */
 typedef enum {
-    AXE_WAITING_FOR_PARENT,
-    AXE_TASK_SCHEDULED,
-    AXE_TASK_RUNNING,
-    AXE_TASK_DONE,
-    AXE_TASK_CANCELED
+    AXE_WAITING_FOR_PARENT,     /* The task cannot run yet because not all conditions have been met */
+    AXE_TASK_SCHEDULED,         /* The task can be run but has not started running yet */
+    AXE_TASK_RUNNING,           /* The task is executing */
+    AXE_TASK_DONE,              /* The task is complete */
+    AXE_TASK_CANCELED           /* The task was canceled before it could run */
 } AXE_status_t;
 
+/* Enum to describe the outcome of AXEremove() and AXEremove_all() */
 typedef enum {
-    AXE_CANCELED,
-    AXE_NOT_CANCELED,
-    AXE_ALL_DONE
+    AXE_CANCELED,       /* All tasks were canceled or already complete */
+    AXE_NOT_CANCELED,   /* At least one task was not canceled because it was running */
+    AXE_ALL_DONE        /* All tasks were already complete */
 } AXE_remove_status_t;
 
+/* Return value from API calls */
 typedef enum {
-    AXE_SUCCEED,
-    AXE_FAIL
+    AXE_SUCCEED,        /* Function completed normally */
+    AXE_FAIL            /* Function failed and did not complete normally */
 } AXE_error_t;
 
+/* This function pointer type refers to the operation routine that is
+ * asynchronously executed by the engine for a given task. The memory for the
+ * op_data parameter (which includes both the operation’s parameters and its
+ * return value) must be managed by the user unless a free_op_data callback is
+ * provided to AXEcreate_task().  When an operation is invoked by the execution
+ * engine, the engine passes arrays of task handles to the necessary and
+ * sufficient parent tasks that have completed and have allow this operation to
+ * be invoked.  The array of sufficient parent task handles that is passed in to
+ * this callback will only contain those sufficient parent tasks that have
+ * completed, and may not include all of the sufficient parent task handles used
+ * in the creation call for the task.  The operation must call AXEfinish* on
+ * these task handles, after retrieving any information about their tasks (e.g.:
+ * op_data) that it requires.
+ *
+ * The operation routine will only be invoked once for each task, and has no
+ * return value. */
 typedef void (*AXE_task_op_t)(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *op_data);
 
+/* This function pointer type refers to a routine that is invoked by the engine
+ * when the engine no longer needs to use the task and AXEfinish() has been
+ * called on all outstanding references to the task.  It is intended to be used
+ * to free op_data, and can simply be passed as "free" if that is sufficient. */
 typedef void (*AXE_task_free_op_data_t)(void *op_data);
 
 

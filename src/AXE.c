@@ -24,6 +24,38 @@
 OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of calls to AXE_begin_try() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEcreate_engine
+ *
+ * Purpose:     Create a new engine for asynchronous execution, with a
+ *              thread pool containing the specified number of threads.
+ *              An engine must be created before any tasks can be created.
+ *              The engine will always create and maintain num_threads
+ *              threads, with no extra threads set aside to, for example,
+ *              schedule tasks.  All task scheduling is done on-demand by
+ *              application threads (in AXEcreate_task() and
+ *              AXEcreate_barrier_task()) and by the task exection
+ *              threads.
+ *
+ *              It is guaranteed that there will always be exactly
+ *              num_threads available for execution (with the possibiliy
+ *              of a short wait if the thread is performing its scheduling
+ *              duties), until AXEterminate_engine() is called.
+ *              Therefore, if the application algorithm requires
+ *              N tasks to run concurrently in order to proceed, it is
+ *              safe to set num_threads to N.
+ *
+ *              The handle for the newly created engine is returned in
+ *              *engine.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEcreate_engine(size_t num_threads, AXE_engine_t *engine/*out*/)
 {
@@ -46,8 +78,37 @@ done:
 } /* end AXEcreate_engine() */
 
 
-/* Note: what happens if the user still has handles open for tasks in this
- * engine? */
+/*-------------------------------------------------------------------------
+ * Function:    AXEterminate_engine
+ *
+ * Purpose:     Terminate an asynchronous execution engine.  The engine
+ *              will first deal with uncompleted tasks.  If the function
+ *              parameter wait_all is set to true, then this function
+ *              blocks the program execution until all uncompleted tasks
+ *              complete.  Otherwise, tasks that have not begun running
+ *              will be canceled and the function blocks until all running
+ *              tasks complete. Afterwards, all allocated resources will
+ *              be released and the instance engine terminates.
+ *
+ *              Any concurrent or subsequent use of this engine or the
+ *              tasks within it is an error and will result in undefined
+ *              behavior.  An exception to this rule is made if wait_all
+ *              is true, in which case the engine and tasks may be
+ *              manipulated as normal while tasks are still running.  It
+ *              is the application's responsibility to make sure that
+ *              tasks are still running.  It is safe to call AXEwait() in
+ *              this case, even if the task waited on may be the last task
+ *              to complete (again as long as tasks are still running when
+ *              calling AXEwait()).
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEterminate_engine(AXE_engine_t engine, _Bool wait_all)
 {
@@ -71,8 +132,53 @@ done:
 } /* end AXEterminate_engine() */
 
 
-/* task is ready to be used once either this function returns or op is called
- * for this task */
+/*-------------------------------------------------------------------------
+ * Function:    AXEcreate_task
+ *
+ * Purpose:     Create a new task in the engine identified by engine,
+ *              setting its operation routine to op with parameter
+ *              op_data.  This task may depend on other tasks, specified
+ *              in the necessary_parents array of size
+ *              num_necessary_parents and the sufficient_parents array of
+ *              size num_sufficient_parents.  All tasks in the
+ *              necessary_parents array must complete and at least one of
+ *              the tasks in the sufficient_parents array must complete
+ *              before the engine will execute this task, but either of
+ *              the necessary or sufficient sets of parent tasks (or both)
+ *              can be empty.  If any parent tasks complete before the new
+ *              task is inserted, they will still be included in the
+ *              arrays passed to the op routine when it is invoked.
+ *
+ *              If the op parameter is NULL, no operation will be invoked
+ *              and this event is solely a placeholder in the graph for
+ *              other events to depend on.  Tasks with no parent
+ *              dependencies (i.e.: root nodes in the DAG) can be inserted
+ *              by setting both of the num_parents parameters to 0.  If
+ *              not set to NULL, the free_op_data callback will be invoked
+ *              with the task’s op_data pointer when all the outstanding
+ *              references to the new task are released (with AXEfinish*)
+ *              and the task is no longer needed by the engine.
+ *
+ *              The handle for the newly created task is returned in
+ *              *task.  If the application does not need a task handle,
+ *              task can be set to NULL and the engine will remove the
+ *              task and call free_op_data as soon as it is no longer
+ *              needed.  The handle returned in *task is ready to be used
+ *              as soon as either this function returns or the task's op
+ *              function is called.  Therefore it is safe, for example, to
+ *              store the task handle in a field in op_data and pass the
+ *              address of that field to this function.  It is also safe,
+ *              in that situation, to call AXEfinish() within that task's
+ *              op function.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     size_t num_necessary_parents, AXE_task_t necessary_parents[],
@@ -118,8 +224,45 @@ done:
 } /* end AXEcreate_task() */
 
 
-/* task is ready to be used once either this function returns or op is called
- * for this task */
+/*-------------------------------------------------------------------------
+ * Function:    AXEcreate_barrier_task
+ *
+ * Purpose:     Create a task in the engine identified by engine with a
+ *              necessary parent dependency on all the current leaf nodes
+ *              of the engine’s DAG.  In other words, this task serves as
+ *              a synchronization point for all the current tasks in the
+ *              engine’s DAG.  For the purposes of this function a "leaf
+ *              node" is a node with no necessary children (it may have
+ *              sufficient children).
+ *
+ *              If the op parameter is NULL, no operation will be invoked
+ *              for this task and this task is solely a placeholder in the
+ *              graph for other tasks to depend on.  If not set to NULL,
+ *              the free_op_data callback will be invoked on the task’s
+ *              op_data pointer when all the outstanding references to the
+ *              new task are released (with AXEfinish*) and the task is no
+ *              longer needed by the engine.
+ *
+ *              The handle for the newly created task is returned in
+ *              *task.  If the application does not need a task handle,
+ *              task can be set to NULL and the engine will remove the
+ *              task and call free_op_data as soon as it is no longer
+ *              needed.  The handle returned in *task is ready to be used
+ *              as soon as either this function returns or the task's op
+ *              function is called.  Therefore it is safe, for example, to
+ *              store the task handle in a field in op_data and pass the
+ *              address of that field to this function.  It is also safe,
+ *              in that situation, to call AXEfinish() within that task's
+ *              op function.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
@@ -159,8 +302,34 @@ done:
 } /* end AXEcreate_barrier_task() */
 
 
-/* Note for AXEremove/remove_all: Does the app still need to call AXEfinish() or
- * do these functions free the task(s)? */
+/*-------------------------------------------------------------------------
+ * Function:    AXEremove
+ *
+ * Purpose:     Attempt to remove a task from an engine.  Tasks that have
+ *              any necessary or sufficient children may not be removed.
+ *              The result of the attempt is returned in *remove_status.
+ *              If the task has not started running, the task will be
+ *              canceled and *remove_status will be set to AXE_CANCELED.
+ *              If the task is running, the task will not be canceled and
+ *              *remove_status will be set to AXE_NOT_CANCELED.  If the
+ *              task has already finished, the task will not be canceled
+ *              and *remove_status will be set to AXE_ALL_DONE.  If the
+ *              task has any necessary or sufficient children this
+ *              function will return AXE_FAIL and *remove_status will not
+ *              be set.
+ *
+ *              This function does not release the task handle.
+ *              AXEfinish* must still be called on task when the
+ *              application is done with it.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status)
 {
@@ -179,6 +348,29 @@ done:
 } /* end AXEremove() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEremove_all
+ *
+ * Purpose:     Attempt to remove all tasks from an engine.  The result of
+ *              the attempt is returned in *remove_status.  If at least
+ *              one task was canceled and all others (if any) were already
+ *              complete remove_status will be set to AXE_CANCELED.  If at
+ *              least one task was already running *remove_status will be
+ *              set to AXE_NOT_CANCELED.  If all tasks had already
+ *              finished *remove_status will be set to AXE_ALL_DONE.
+ *
+ *              This function does not release the task handles.
+ *              AXEfinish* must still be called on the tasks when the
+ *              application is done with them.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEremove_all(AXE_engine_t engine, AXE_remove_status_t *remove_status)
 {
@@ -197,6 +389,21 @@ done:
 } /* end AXEremove_all() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_op_data
+ *
+ * Purpose:     Retrieves the op_data pointer associated with the
+ *              specified task.  The op_data pointer is returned in
+ *              *op_data.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEget_op_data(AXE_task_t task, void **op_data/*out*/)
 {
@@ -216,6 +423,21 @@ done:
 } /* end AXEget_op_data() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_status
+ *
+ * Purpose:     Retrieves the of the specified task, and can be used to
+ *              determine if a task has completed.  The status is returned
+ *              in *status.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/)
 {
@@ -243,6 +465,26 @@ done:
 } /* end AXEget_status() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEwait
+ *
+ * Purpose:     Block program execution until the specified task completes
+ *              execution.  If the task depends on other tasks in the
+ *              engine, then those parent tasks will also have completed
+ *              when this function returns.  If the task had completed
+ *              before this function is called this funciton will
+ *              immediately return AXE_SUCCEED.  If the task is canceled
+ *              while waiting or was canceled before this function is
+ *              called this function will return failure.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEwait(AXE_task_t task)
 {
@@ -261,6 +503,26 @@ done:
 } /* end AXEwait() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEfinish
+ *
+ * Purpose:     Inform the engine that the application is finished with
+ *              this task handle.  If all the handles for the task have
+ *              been released and the engine no longer needs to use the
+ *              task internally, all engine-side resources will be
+ *              released and the task’s free_op_data callback will be
+ *              invoked.  Use of task after calling this function will
+ *              result in undefined behavior, unless another copy of this
+ *              handle is held.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEfinish(AXE_task_t task)
 {
@@ -282,6 +544,26 @@ done:
 } /* end AXEfinish() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEfinish_all
+ *
+ * Purpose:     Inform the engine that the application is finished with
+ *              a set of task handles.  If all the handles for a task have
+ *              been released and the engine no longer needs to use the
+ *              task internally, all engine-side resources will be
+ *              released and the task’s free_op_data callback will be
+ *              invoked.  Use of task after calling this function will
+ *              result in undefined behavior, unless another copy of this
+ *              handle is held.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEfinish_all(size_t num_tasks, AXE_task_t task[])
 {
@@ -289,7 +571,7 @@ AXEfinish_all(size_t num_tasks, AXE_task_t task[])
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
-    if(!task)
+    if(num_tasks > 0 && !task)
         ERROR;
 
     /* Iterate over all tasks */
@@ -311,6 +593,25 @@ done:
 } /* end AXEfinish_all() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEbegin_try
+ *
+ * Purpose:     Suspend error message printing by the library.  Functions
+ *              will still return AXE_FAIL if they fail.  Error message
+ *              printing may be resumed using AXEend_try().  If
+ *              AXEbegin_try() is called multiple times, an equal number
+ *              of calls to AXEend_try() will be necessary to resume error
+ *              printing.  Calling AXEend_try() more times than
+ *              AXEbegin_try() will result in undefined behavior.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEbegin_try(void)
 {
@@ -320,6 +621,23 @@ AXEbegin_try(void)
 } /* end AXE_begin_try() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    AXEbegin_try
+ *
+ * Purpose:     Resume error message printing by the library.  If
+ *              AXEbegin_try() is called multiple times, an equal number
+ *              of calls to AXEend_try() will be necessary to resume error
+ *              printing.  Calling AXEend_try() more times than
+ *              AXEbegin_try() will result in undefined behavior.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 AXE_error_t
 AXEend_try(void)
 {

@@ -64,6 +64,9 @@ typedef struct {
 #define FRACTAL_NITER 10
 #define FRACTAL_NCHILDREN 2
 #define FRACTAL_NTASKS 1000
+#define FRACTAL_NODEP_NITER 10
+#define FRACTAL_NODEP_NCHILDREN 2
+#define FRACTAL_NODEP_NTASKS 1000
 #define PARALLEL_NITER 50
 #define PARALLEL_NUM_THREADS_META 20
 #else
@@ -81,6 +84,9 @@ typedef struct {
 #define FRACTAL_NITER 200
 #define FRACTAL_NCHILDREN 2
 #define FRACTAL_NTASKS 10000
+#define FRACTAL_NODEP_NITER 200
+#define FRACTAL_NODEP_NCHILDREN 2
+#define FRACTAL_NODEP_NTASKS 10000
 #define PARALLEL_NITER 5000
 #define PARALLEL_NUM_THREADS_META 20
 #endif
@@ -2623,6 +2629,13 @@ test_finish_all_helper(size_t num_necessary_parents,
 
 
     /*
+     * Test 1: No tasks
+     */
+    if(AXEfinish_all(0, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
      * Test 2: Two tasks
      */
     /* Initialize shared task data struct */
@@ -3824,7 +3837,7 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     if(task_data[2].num_sufficient_parents != 0)
         TEST_ERROR;
     if((task_data[3].run_order < 1) || (task_data[3].run_order > 3))
-        {printf("%d\n", (int)task_data[3].run_order); TEST_ERROR;}
+        TEST_ERROR;
     if(task_data[3].num_necessary_parents != 0)
         TEST_ERROR;
     if(task_data[3].num_sufficient_parents != 1)
@@ -4379,7 +4392,6 @@ fractal_task_worker(size_t num_necessary_parents,
             break;
         } /* end if */
         else {
-            /* Create left child */
             /* Init task struct */
             if(NULL == (task_data->child[i] = (fractal_task_t *)malloc(sizeof(fractal_task_t)))) {
                 task_data->failed = 1;
@@ -4405,8 +4417,8 @@ fractal_task_worker(size_t num_necessary_parents,
 
     /* Decrement and test the number of tasks left to finish.  If this was the
      * last task to finish, send the signal to wake up the launcher.  Safe to
-     * lock the mutex after the decr-and-test for reasons explained in
-     * AXE_schedule_wait_all() and AXE_schedule_finish(). */
+     * lock the mutex after the decr-and-test because num_tasks_left_end never
+     * moves from a signaled to not-signaled state. */
     if(OPA_decr_and_test_int(&task_data->shared->num_tasks_left_end)) {
         if(0 != pthread_mutex_lock(&task_data->shared->cond_mutex))
             task_data->failed = 1;
@@ -4524,6 +4536,128 @@ error:
 } /* end test_fractal_helper() */
 
 
+typedef struct fractal_nodep_task_t {
+    AXE_engine_t engine;
+    OPA_int_t num_tasks_left_start;
+    OPA_int_t num_tasks_left_end;
+    OPA_int_t failed;
+    pthread_cond_t cond;
+    pthread_mutex_t cond_mutex;
+} fractal_nodep_task_t;
+
+
+void
+fractal_nodep_task_worker(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
+{
+    fractal_nodep_task_t *task_data = (fractal_nodep_task_t *)_task_data;
+    int i;
+
+    assert(task_data);
+
+    /* Make sure there are no parents */
+    if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
+        OPA_incr_int(&task_data->failed);
+
+    /* Iterate over children */
+    for(i = 0; i < FRACTAL_NODEP_NCHILDREN; i++) {
+        /* Fetch and decrement the number of tasks left to launch.  If there are
+         * no more tasks to launch, reset the number of tasks left to launch and
+         * do not launch any more children. */
+        if(OPA_fetch_and_decr_int(&task_data->num_tasks_left_start) <= 0) {
+            OPA_incr_int(&task_data->num_tasks_left_start);
+            break;
+        } /* end if */
+        else {
+            /* Create child task */
+            if(AXEcreate_task(task_data->engine, NULL, 0, NULL, 0, NULL,
+                    fractal_nodep_task_worker, task_data, NULL) != AXE_SUCCEED)
+                OPA_incr_int(&task_data->failed);
+        } /* end else */
+    } /* end for */
+
+    /* Decrement and test the number of tasks left to finish.  If this was the
+     * last task to finish, send the signal to wake up the launcher.  Safe to
+     * lock the mutex after the decr-and-test because num_tasks_left_end never
+     * moves from a signaled to not-signaled state. */
+    if(OPA_decr_and_test_int(&task_data->num_tasks_left_end)) {
+        if(0 != pthread_mutex_lock(&task_data->cond_mutex))
+            OPA_incr_int(&task_data->failed);
+        if(0 != pthread_cond_signal(&task_data->cond))
+            OPA_incr_int(&task_data->failed);
+        if(0 != pthread_mutex_unlock(&task_data->cond_mutex))
+            OPA_incr_int(&task_data->failed);
+    } /* end if */
+
+    return;
+} /* end fractal_nodep_task_worker() */
+
+
+void
+test_fractal_nodep_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    fractal_nodep_task_t task_data;
+
+    /* Initialize shared task data struct */
+    task_data.engine = helper_data->engine;
+    OPA_store_int(&task_data.num_tasks_left_start, FRACTAL_NODEP_NTASKS);
+    OPA_store_int(&task_data.num_tasks_left_end, FRACTAL_NODEP_NTASKS);
+    OPA_store_int(&task_data.failed, 0);
+    if(0 != pthread_cond_init(&task_data.cond, NULL))
+        TEST_ERROR;
+    if(0 != pthread_mutex_init(&task_data.cond_mutex, NULL))
+        TEST_ERROR;
+
+    /* Create parent task */
+    OPA_decr_int(&task_data.num_tasks_left_start);
+    if(AXEcreate_task(helper_data->engine, NULL, 0, NULL, 0, NULL,
+            fractal_nodep_task_worker, &task_data, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Wait for condition signal that all tasks finished */
+    if(0 != pthread_mutex_lock(&task_data.cond_mutex))
+        TEST_ERROR;
+    if(OPA_load_int(&task_data.num_tasks_left_end) > 0)
+        if(0 != pthread_cond_wait(&task_data.cond, &task_data.cond_mutex))
+            TEST_ERROR;
+    if(0 != pthread_mutex_unlock(&task_data.cond_mutex))
+        TEST_ERROR;
+
+    /* Verify results */
+    if(OPA_load_int(&task_data.num_tasks_left_start) != 0)
+        TEST_ERROR;
+    if(OPA_load_int(&task_data.num_tasks_left_end) != 0)
+        TEST_ERROR;
+    if(OPA_load_int(&task_data.failed) != 0)
+        TEST_ERROR;
+
+    /*
+     * Close
+     */
+    /* Destroy mutex and condition variable */
+    if(0 != pthread_cond_destroy(&task_data.cond))
+        TEST_ERROR;
+    if(0 != pthread_mutex_destroy(&task_data.cond_mutex))
+        TEST_ERROR;
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    (void)pthread_cond_destroy(&task_data.cond);
+    (void)pthread_mutex_destroy(&task_data.cond_mutex);
+
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_fractal_nodep_helper() */
+
+
 int
 test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
     _Bool create_engine, char *test_name)
@@ -4532,6 +4666,12 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
     size_t i;
 
     TESTING(test_name);
+
+#ifdef AXE_DEBUG_PERF
+    OPA_store_int(&AXE_debug_nspins_add, 0);
+    OPA_store_int(&AXE_debug_nspins_finish, 0);
+    OPA_store_int(&AXE_debug_nadds, 0);
+#endif /* AXE_DEBUG_PERF */
 
     /* Perform niter iterations of the test */
     for(i = 0; i < niter; i++) {
@@ -4565,6 +4705,11 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
     } /* end for */
 
     PASSED();
+
+#ifdef AXE_DEBUG_PERF
+    printf(" Adds: %d, Spins in add_common(): %d, Spins in finish(): %d\n", OPA_load_int(&AXE_debug_nadds), OPA_load_int(&AXE_debug_nspins_add), OPA_load_int(&AXE_debug_nspins_finish));
+#endif /* AXE_DEBUG_PERF */
+
     return 0;
 
 error:
@@ -4592,10 +4737,17 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     size_t remove_all_i = 0;
     size_t terminate_engine_i = 0;
     size_t fractal_i = 0;
+    size_t fractal_nodep_i = 0;
     size_t num_threads_i = 0;
     size_t i;
 
     TESTING("parallel execution of all tests");
+
+#ifdef AXE_DEBUG_PERF
+    OPA_store_int(&AXE_debug_nspins_add, 0);
+    OPA_store_int(&AXE_debug_nspins_finish, 0);
+    OPA_store_int(&AXE_debug_nadds, 0);
+#endif /* AXE_DEBUG_PERF */
 
     /* Initialize parallel mutex.  Only used to prevent simultaneous execution
      * of tests that require a minimum number of threads in the shared engine.
@@ -4698,6 +4850,13 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
             fractal_i++;
         } /* end if */
 
+        /* Launch fractal_nodep test */
+        if(i >= fractal_nodep_i * PARALLEL_NITER / FRACTAL_NODEP_NITER) {
+            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_fractal_nodep_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            fractal_nodep_i++;
+        } /* end if */
+
         /* Launch num_threads test */
         if(i >= num_threads_i * PARALLEL_NITER / NUM_THREADS_NITER) {
             if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_num_threads_helper, &helper_data, NULL) != AXE_SUCCEED)
@@ -4709,6 +4868,7 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     /* Terminate meta engine and wait for all tasks to complete */
     if(AXEterminate_engine(meta_engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    meta_engine_init = FALSE;
 
     /* Verify results */
     if(OPA_load_int(&helper_data.nfailed) != 0)
@@ -4724,8 +4884,9 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     assert(remove_all_i == (REMOVE_ALL_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(terminate_engine_i == (TERMINATE_ENGINE_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(fractal_i == (FRACTAL_NITER * niter - 1) / PARALLEL_NITER + 1);
+    assert(fractal_nodep_i == (FRACTAL_NODEP_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(num_threads_i == (NUM_THREADS_NITER * niter - 1) / PARALLEL_NITER + 1);
-    if(OPA_load_int(&helper_data.ncomplete) != simple_i + necessary_i + sufficient_i + barrier_i + get_op_data_i + finish_all_i + free_op_data_i + remove_i + remove_all_i + terminate_engine_i + fractal_i + num_threads_i)
+    if(OPA_load_int(&helper_data.ncomplete) != simple_i + necessary_i + sufficient_i + barrier_i + get_op_data_i + finish_all_i + free_op_data_i + remove_i + remove_all_i + terminate_engine_i + fractal_i + fractal_nodep_i + num_threads_i)
         TEST_ERROR;
 
     /* Destroy parallel mutex */
@@ -4737,6 +4898,11 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
         TEST_ERROR;
 
     PASSED();
+
+#ifdef AXE_DEBUG_PERF
+    printf(" Adds: %d, Spins in add_common(): %d, Spins in finish(): %d\n", OPA_load_int(&AXE_debug_nadds), OPA_load_int(&AXE_debug_nspins_add), OPA_load_int(&AXE_debug_nspins_finish));
+#endif /* AXE_DEBUG_PERF */
+
     return 0;
 
 error:
@@ -4771,6 +4937,7 @@ main(int argc, char **argv)
         nerrors += test_serial(test_remove_all_helper, num_threads_g[i], REMOVE_ALL_NITER / iter_reduction_g[i], FALSE, "AXEremove_all()");
         nerrors += test_serial(test_terminate_engine_helper, num_threads_g[i], TERMINATE_ENGINE_NITER / iter_reduction_g[i], FALSE, "AXEterminate_engine()");
         nerrors += test_serial(test_fractal_helper, num_threads_g[i], FRACTAL_NITER / iter_reduction_g[i], TRUE, "fractal task creation");
+        nerrors += test_serial(test_fractal_nodep_helper, num_threads_g[i], FRACTAL_NODEP_NITER / iter_reduction_g[i], TRUE, "fractal task creation without dependencies");
         nerrors += test_parallel(PARALLEL_NUM_THREADS_META, num_threads_g[i], PARALLEL_NITER / iter_reduction_g[i]);
     } /* end for */
     printf("----Tests with fixed number of threads----\n"); fflush(stdout);
