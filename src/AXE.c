@@ -214,7 +214,8 @@ AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
         printf("AXEcreate_task: decr ref: %p", int_task);
 #endif /* AXE_DEBUG_REF */
         assert(*task == int_task);
-        AXE_task_decr_ref(int_task, NULL);
+        if(AXE_task_decr_ref(int_task, NULL) != AXE_SUCCEED)
+            ERROR;
     } /* end if */
     else
         assert(*task != int_task);
@@ -292,7 +293,8 @@ AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
         printf("AXEcreate_barrier_task: decr ref: %p", int_task);
 #endif /* AXE_DEBUG_REF */
         assert(*task == int_task);
-        AXE_task_decr_ref(int_task, NULL);
+        if(AXE_task_decr_ref(int_task, NULL) != AXE_SUCCEED)
+            ERROR;
     } /* end if */
     else
         assert(*task != int_task);
@@ -537,7 +539,8 @@ AXEfinish(AXE_task_t task)
 #ifdef AXE_DEBUG_REF
     printf("AXEfinish: decr ref: %p", task);
 #endif /* AXE_DEBUG_REF */
-    AXE_task_decr_ref(task, NULL);
+    if(AXE_task_decr_ref(task, NULL) != AXE_SUCCEED)
+        ERROR;
 
 done:
     return ret_value;
@@ -585,7 +588,8 @@ AXEfinish_all(size_t num_tasks, AXE_task_t task[])
 #ifdef AXE_DEBUG_REF
     printf("AXEfinish_all: decr ref: %p", task);
 #endif /* AXE_DEBUG_REF */
-        AXE_task_decr_ref(task[i], NULL);
+        if(AXE_task_decr_ref(task[i], NULL) != AXE_SUCCEED)
+            ret_value = AXE_FAIL;
     } /* end for */
 
 done:

@@ -191,6 +191,9 @@ AXE_thread_pool_try_acquire(AXE_thread_pool_t *thread_pool,
 {
     AXE_error_t ret_value = AXE_SUCCEED;
 
+    assert(thread_pool);
+    assert(thread);
+
     /* Lock the thread queue mutex - only one thread can dequeue at a time with
      * the current queue implementation */
     /* Note that the thread queue mutex is always unlocked shortly afterwards
@@ -233,6 +236,8 @@ done:
 void
 AXE_thread_pool_release(AXE_thread_t *thread)
 {
+    assert(thread);
+
     /* Push thread back onto free thread queue */
     OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AXE_thread_t, thread_queue_hdr);
 
@@ -241,7 +246,7 @@ AXE_thread_pool_release(AXE_thread_t *thread)
 
 
 /*-------------------------------------------------------------------------
- * Function:    AXE_thread_pool_release
+ * Function:    AXE_thread_pool_launch
  *
  * Purpose:     Uses the specified thread to launch the client operator
  *              thread_op with client data thread_op_data.
@@ -285,11 +290,11 @@ AXE_thread_pool_launch(AXE_thread_t *thread, AXE_thread_op_t thread_op,
 
 done:
     return ret_value;
-} /* end AXE_thread_pool_try_launch() */
+} /* end AXE_thread_pool_launch() */
 
 
 /*-------------------------------------------------------------------------
- * Function:    AXE_thread_pool_release
+ * Function:    AXE_thread_pool_free
  *
  * Purpose:     Frees the specified thread pool.  First signals all
  *              threads to shut down, joins all threads, and frees all
@@ -394,7 +399,7 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    AXE_task_worker
+ * Function:    AXE_thread_pool_worker
  *
  * Purpose:     Internal thread pool worker routine.  Repeatedly waits
  *              until signaled to run, and executes the callback function

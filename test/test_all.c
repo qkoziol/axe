@@ -20,29 +20,32 @@
 /*
  * Typedefs
  */
+/* op_data struct for all tests */
 typedef struct {
-    AXE_engine_t engine;
-    size_t num_threads;
-    OPA_int_t nfailed;
-    OPA_int_t ncomplete;
-    pthread_mutex_t *parallel_mutex;
+    AXE_engine_t engine;        /* The engine to run the test in (if the test does not create its own */
+    size_t num_threads;         /* The number of threads in engine */
+    OPA_int_t nfailed;          /* (Out) the number of failures of the test */
+    OPA_int_t ncomplete;        /* (Out) the number of successful completions of the test */
+    pthread_mutex_t *parallel_mutex; /* Mutex for exclusive access to tests that require a minimum number of threads, if running in parallel (test_parallel()) */
 } test_helper_t;
 
+/* Shared data for basic_task_t */
 typedef struct {
-    int max_ncalls;
-    OPA_int_t ncalls;
+    int max_ncalls;             /* Maximum number of calls to basic_task_worker() */
+    OPA_int_t ncalls;           /* (Out) number of calls to basic_task_worker() */
 } basic_task_shared_t;
 
+/* op_data for basic_task_worker() */
 typedef struct {
-    basic_task_shared_t *shared;
-    int failed;
-    int run_order;
-    size_t num_necessary_parents;
-    size_t num_sufficient_parents;
-    pthread_mutex_t *mutex;
-    pthread_cond_t *cond;
-    pthread_mutex_t *cond_mutex;
-    int cond_signal_sent;
+    basic_task_shared_t *shared; /* Shared task op_data */
+    int failed;                 /* (Out) whether this task failed */
+    int run_order;              /* (Out) order in which this task was run */
+    size_t num_necessary_parents; /* num_necessary_parents parameter provided to task */
+    size_t num_sufficient_parents; /* num_sufficient_parents parameter provided to task */
+    pthread_mutex_t *mutex;     /* Mutex used for synchronization */
+    pthread_cond_t *cond;       /* Condition variable for signaling main test thread */
+    pthread_mutex_t *cond_mutex; /* Mutex associated with cond */
+    int cond_signal_sent;       /* Whether the condition signal was sent */
 } basic_task_t;
 
 
@@ -95,10 +98,32 @@ typedef struct {
 /*
  * Variables
  */
+/* Perform each test once for each element in this array, each time with the
+ * number of threads indicated by the element in this array */
 size_t num_threads_g[] = {1, 2, 3, 5, 10};
+
+/* For the number of threads corresponding to the same location in
+ * num_threads_g, reduce the number of iterations by the factor idicated in this
+ * array */
 size_t iter_reduction_g[] = {1, 1, 1, 3, 5};
 
 
+/*-------------------------------------------------------------------------
+ * Function:    basic_task_worker
+ *
+ * Purpose:     Task worker for most tests.  First sends a condition
+ *              signal if requested, then waits on a mutex if requested,
+ *              then records num_necessary_parents,
+ *              num_sufficient_parents, and the call order before
+ *              returning.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 basic_task_worker(size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
@@ -159,6 +184,22 @@ basic_task_worker(size_t num_necessary_parents, AXE_task_t necessary_parents[],
 } /* end basic_task_worker() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    basic_task_free
+ *
+ * Purpose:     Frees a dynamically allocated basic_task_t and
+ *              basic_task_shared_t.  Always frees the shared struct, so
+ *              if there is more than one top-level struct you will have
+ *              to modify the shared struct and this function to use
+ *              reference counting.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 basic_task_free(void *_task_data)
 {
@@ -188,6 +229,19 @@ basic_task_free(void *_task_data)
 } /* end basic_task_free() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_simple_helper
+ *
+ * Purpose:     Tests basic task creation functionality of the AXE
+ *              library.  Does not use dependencies.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
@@ -431,6 +485,18 @@ error:
 } /* end test_simple_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_necessary_helper
+ *
+ * Purpose:     Tests functionality of necessary task dependencies.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_necessary_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -1067,6 +1133,18 @@ error:
 } /* end test_necessary_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_sufficient_helper
+ *
+ * Purpose:     Tests functionality of sufficient task dependencies.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_sufficient_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -1755,6 +1833,18 @@ error:
 } /* end test_sufficient_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_barrier_helper
+ *
+ * Purpose:     Tests creation of barrier tasks.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_barrier_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -2519,6 +2609,18 @@ error:
 } /* end test_barrier_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_get_op_data_helper
+ *
+ * Purpose:     Tests functionality of AXEget_op_data().
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_get_op_data_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -2605,6 +2707,18 @@ error:
 } /* end test_get_op_data_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_finish_all_helper
+ *
+ * Purpose:     Tests functionality of AXEfinish_all().
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_finish_all_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -2706,12 +2820,26 @@ error:
 } /* end test_finish_all_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_free_op_data_helper
+ *
+ * Purpose:     Tests functionality of free_op_data callback provided to
+ *              AXEcreate_task()/AXEcreate_barrier_task().
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+/* op_data struct for free_op_data_worker */
 typedef struct free_op_data_t {
-    OPA_int_t ncalls;
-    OPA_int_t rc;
-    pthread_cond_t cond;
-    pthread_mutex_t cond_mutex;
-    int failed;
+    OPA_int_t ncalls;           /* Number of calls to free_op_data_worker */
+    OPA_int_t rc;               /* Number of references to this struct.  It will be freed when it drops to 0. */
+    pthread_cond_t cond;        /* Condition variable for signaling main test thread */
+    pthread_mutex_t cond_mutex; /* Mutex associated with cond */
+    int failed;                 /* Whether free_op_data_worker() failed */
 } free_op_data_t;
 
 
@@ -2736,9 +2864,9 @@ error:
 } /* end free_op_data_decr_ref() */
 
 
-/* "free_op_data" callback for free_op_data test.  Does not actually free the
- * op data, just marks that it has been called for the specified op_data and
- * sends a signal. */
+/* "free_op_data" callback for free_op_data test.  Darks that it has been called
+ * for the specified op_data, sends a signal, and calls free_op_data_decr_ref().
+ */
 void
 free_op_data_worker(void *_task_data)
 {
@@ -2756,12 +2884,14 @@ free_op_data_worker(void *_task_data)
         task_data->failed = 1;
 
     /* Release task_data */
-    (void)free_op_data_decr_ref(task_data);
+    if(free_op_data_decr_ref(task_data) != 0)
+        task_data->failed = 1;
 
     return;
 } /* end free_op_data_worker() */
 
 
+/* Main test helper function */
 void
 test_free_op_data_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -2906,6 +3036,91 @@ test_free_op_data_helper(size_t num_necessary_parents,
 
 
     /*
+     * Test 3: Two normal tasks, one barrier task
+     */
+    /* Only run if not running in parallel, so barrier task doesn't interfere
+     * with other tests */
+    if(!(helper_data->parallel_mutex)) {
+        /* Allocate and initialize task_data */
+        for(i = 0; i <= 2; i++) {
+            if(NULL == (task_data[i] = (free_op_data_t *)malloc(sizeof(free_op_data_t))))
+                TEST_ERROR;
+            OPA_store_int(&(task_data[i])->ncalls, 0);
+            OPA_store_int(&(task_data[i])->rc, 2);
+            if(0 != pthread_cond_init(&(task_data[i])->cond, NULL))
+                TEST_ERROR;
+            if(0 != pthread_mutex_init(&(task_data[i])->cond_mutex, NULL))
+                TEST_ERROR;
+            task_data[i]->failed = 0;
+        } /* end for */
+
+        /* Create tasks */
+        if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, NULL, task_data[0],
+                free_op_data_worker) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, NULL, task_data[1],
+                free_op_data_worker) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_barrier_task(helper_data->engine, &task[2], NULL, task_data[2],
+                free_op_data_worker) != AXE_SUCCEED)
+            TEST_ERROR;
+
+        /* Wait for tasks to complete */
+        if(AXEwait(task[0]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEwait(task[1]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEwait(task[2]) != AXE_SUCCEED)
+            TEST_ERROR;
+
+        /* Verify free_op_data has been called the correct number of times */
+        if(OPA_load_int(&(task_data[0])->ncalls) != 0)
+            TEST_ERROR;
+        if(OPA_load_int(&(task_data[1])->ncalls) != 0)
+            TEST_ERROR;
+        if(OPA_load_int(&(task_data[2])->ncalls) != 0)
+            TEST_ERROR;
+
+        /* Close tasks */
+        if(AXEfinish(task[0]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEfinish(task[1]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEfinish(task[2]) != AXE_SUCCEED)
+            TEST_ERROR;
+
+        /* Wait for condition signal so we know the free_op_data callback has been
+         * called for each task */
+        for(i = 0; i <= 2; i++) {
+            if(0 != pthread_mutex_lock(&(task_data[i])->cond_mutex))
+                TEST_ERROR;
+            if(OPA_load_int(&(task_data[i])->ncalls) != 1)
+                if(0 != pthread_cond_wait(&(task_data[i])->cond, &(task_data[i])->cond_mutex))
+                    TEST_ERROR;
+            if(0 != pthread_mutex_unlock(&(task_data[i])->cond_mutex))
+                TEST_ERROR;
+        } /* end for */
+
+        /* Verify free_op_data has been called the correct number of times (arguably
+         * redundant, but may catch a strange bug that sees a thread calling
+         * free_op_data more than once for a task) */
+        if(OPA_load_int(&(task_data[0])->ncalls) != 1)
+            TEST_ERROR;
+        if(OPA_load_int(&(task_data[1])->ncalls) != 1)
+            TEST_ERROR;
+        if(OPA_load_int(&(task_data[2])->ncalls) != 1)
+            TEST_ERROR;
+
+        /* Free task data structs */
+        for(i = 0; i <= 2; i++) {
+            if(free_op_data_decr_ref(task_data[i]) != 0)
+                TEST_ERROR;
+            task_data[i] = NULL;
+        } /* end for */
+    } /* end if */
+
+
+    /*
      * Close
      */
     OPA_incr_int(&helper_data->ncomplete);
@@ -2919,6 +3134,18 @@ error:
 } /* end test_free_op_data_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_remove_helper
+ *
+ * Purpose:     Tests removing tasks from an engine.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
@@ -3303,6 +3530,18 @@ error:
 } /* end test_remove_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_remove_all_helper
+ *
+ * Purpose:     Tests functionality of AXEremove_all().
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_remove_all_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -3750,6 +3989,19 @@ error:
 } /* end test_remove_all_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_terminate_engine_helper
+ *
+ * Purpose:     Tests functionality of AXEterminate_engine(), with
+ *              wait_all set to both TRUE and FALSE.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_terminate_engine_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -3949,6 +4201,19 @@ error:
 } /* end test_terminate_engine_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_num_threads_helper
+ *
+ * Purpose:     Tests that there are always exactly the specified number
+ *              of threads available in an AXE engine.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 void
 test_num_threads_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -4344,22 +4609,40 @@ error:
 } /* end test_num_threads_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_fractal_helper
+ *
+ * Purpose:     Creates a task that creates new tasks as necessary
+ *              children of itself, until a certain number of tasks are
+ *              created.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+/* Data shared between all tasks */
 typedef struct fractal_task_shared_t {
-    AXE_engine_t engine;
-    OPA_int_t num_tasks_left_start;
-    OPA_int_t num_tasks_left_end;
-    pthread_cond_t cond;
-    pthread_mutex_t cond_mutex;
+    AXE_engine_t engine;        /* Engine tasks are placed in */
+    OPA_int_t num_tasks_left_start; /* Number of tasks left to create */
+    OPA_int_t num_tasks_left_end; /* Number of tasks left to finish */
+    pthread_cond_t cond;        /* Condition variable for signaling main thread when all tasks are complete */
+    pthread_mutex_t cond_mutex; /* Mutex associated with cond */
 } fractal_task_shared_t;
 
+/* Data for a single task */
 typedef struct fractal_task_t {
-    fractal_task_shared_t *shared;
-    AXE_task_t this_task;
-    struct fractal_task_t *child[FRACTAL_NCHILDREN];
-    int failed;
+    fractal_task_shared_t *shared; /* Link to shared data */
+    AXE_task_t this_task;       /* Handle for this task */
+    struct fractal_task_t *child[FRACTAL_NCHILDREN]; /* Links to data for child tasks */
+    int failed;                 /* Whether this task has failed */
 } fractal_task_t;
 
 
+/* Task worker function.  Creates children if there are more tasks to create and
+ * sends signal if this was the last task to complete */
 void
 fractal_task_worker(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -4411,7 +4694,7 @@ fractal_task_worker(size_t num_necessary_parents,
         } /* end else */
     } /* end for */
 
-    /* Close task */
+    /* Close this task */
     if(AXEfinish(task_data->this_task) != AXE_SUCCEED)
         task_data->failed = 1;
 
@@ -4432,6 +4715,8 @@ fractal_task_worker(size_t num_necessary_parents,
 } /* end fractal_task_worker() */
 
 
+/* Function to recursively verify that all task data structs report success,
+ * count the number of task data structs, and free them */
 int
 fractal_verify_free(fractal_task_t *task_data, int *num_tasks)
 {
@@ -4459,6 +4744,7 @@ fractal_verify_free(fractal_task_t *task_data, int *num_tasks)
 } /* end fractal_verify_free() */
 
 
+/* Main test helper function */
 void
 test_fractal_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -4536,16 +4822,34 @@ error:
 } /* end test_fractal_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_fractal_nodep_helper
+ *
+ * Purpose:     Creates a task that creates new tasks, until a certain
+ *              number of tasks are created.  Similar to
+ *              test_fractal_helper but does not create dependencies or
+ *              request task handles.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+/* Data shared between all tasks */
 typedef struct fractal_nodep_task_t {
-    AXE_engine_t engine;
-    OPA_int_t num_tasks_left_start;
-    OPA_int_t num_tasks_left_end;
-    OPA_int_t failed;
-    pthread_cond_t cond;
-    pthread_mutex_t cond_mutex;
+    AXE_engine_t engine;        /* Engine tasks are placed in */
+    OPA_int_t num_tasks_left_start; /* Number of tasks left to create */
+    OPA_int_t num_tasks_left_end; /* Number of tasks left to finish */
+    OPA_int_t failed;           /* Number of failures */
+    pthread_cond_t cond;        /* Condition variable for signaling main thread when all tasks are complete */
+    pthread_mutex_t cond_mutex; /* Mutex associated with cond */
 } fractal_nodep_task_t;
 
 
+/* Task worker function.  Creates children if there are more tasks to create and
+ * sends signal if this was the last task to complete */
 void
 fractal_nodep_task_worker(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -4594,6 +4898,7 @@ fractal_nodep_task_worker(size_t num_necessary_parents,
 } /* end fractal_nodep_task_worker() */
 
 
+/* Main test helper function */
 void
 test_fractal_nodep_helper(size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
@@ -4658,6 +4963,22 @@ error:
 } /* end test_fractal_nodep_helper() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_serial
+ *
+ * Purpose:     Runs the test supplied in the helper argument.  Uses
+ *              num_threads threads, runs the test niter times, creates an
+ *              engine if create_engine is set to TRUE, and uses test_name
+ *              to print a message.
+ *
+ * Return:      Success: 0
+ *              Failure: 1
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 int
 test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
     _Bool create_engine, char *test_name)
@@ -4719,6 +5040,22 @@ error:
 } /* end test_serial() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    test_parallel
+ *
+ * Purpose:     Runs all tests concurrently, each with approximately as
+ *              many iterations as it would normally.  All tests that can
+ *              share an engine, others create their own.  Tests are
+ *              launched by AXE, using meta_engine.
+ *
+ * Return:      Success: 0
+ *              Failure: 1
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 int
 test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
 {
@@ -4915,6 +5252,20 @@ error:
 } /* end test_parallel() */
 
 
+/*-------------------------------------------------------------------------
+ * Function:    main
+ *
+ * Purpose:     Loops over the numbers of threads in the num_threads_g
+ *              array, performing each test with each number of threads.
+ *
+ * Return:      Success: 0
+ *              Failure: 1
+ *
+ * Programmer:  Neil Fortner
+ *              February-March, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
 int
 main(int argc, char **argv)
 {

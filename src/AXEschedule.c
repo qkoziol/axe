@@ -680,7 +680,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 #ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p nec", child_task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
-        AXE_task_decr_ref(child_task, free_list_tail_ptr);
+        (void)AXE_task_decr_ref(child_task, free_list_tail_ptr);
 
         /* Advance free_list_tail_ptr if it was set */
         if(*free_list_tail_ptr) {
@@ -745,7 +745,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 #ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p suf", child_task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
-        AXE_task_decr_ref(child_task, free_list_tail_ptr);
+        (void)AXE_task_decr_ref(child_task, free_list_tail_ptr);
 
         /* Advance free_list_tail_ptr if it was set */
         if(*free_list_tail_ptr) {
@@ -831,7 +831,8 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 #ifdef AXE_DEBUG_REF
     printf("AXE_schedule_finish: decr ref: %p\n", *task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
-    AXE_task_decr_ref(*task, NULL);
+    if(AXE_task_decr_ref(*task, NULL) != AXE_SUCCEED)
+        ERROR;
 
     /* This function must not use the supplied task after this point, as it
      * could be freed by the call to AXE_task_decr_ref() */

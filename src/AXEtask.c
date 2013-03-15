@@ -67,6 +67,8 @@ AXE_task_incr_ref(AXE_task_int_t *task)
  *              task list mutex, which must never happen while holding a
  *              task mutex.
  *
+ *              Note: Guaranteed to succeed if free_ptr is not NULL.
+ *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
  *
@@ -75,9 +77,10 @@ AXE_task_incr_ref(AXE_task_int_t *task)
  *
  *-------------------------------------------------------------------------
  */
-void
+AXE_error_t
 AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr)
 {
+    AXE_error_t ret_value = AXE_SUCCEED;
 #ifdef AXE_DEBUG_REF
     int rc = OPA_fetch_and_decr_int(&task->rc) - 1;
 
@@ -95,10 +98,12 @@ AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr)
         if(free_ptr)
             *free_ptr = task;
         else
-            AXE_task_free(task);
+            if(AXE_task_free(task) != AXE_SUCCEED)
+                ERROR;
     } /* end if */
 
-    return;
+done:
+    return ret_value;
 } /* end AXE_task_decr_ref() */
 
 
@@ -164,7 +169,7 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
 done:
     if(ret_value == AXE_FAIL)
         if(*task)
-            AXE_task_decr_ref(*task, NULL);
+            (void)AXE_task_decr_ref(*task, NULL);
 
     return ret_value;
 } /* end AXE_task_create() */
@@ -211,7 +216,7 @@ AXE_task_create_barrier(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
 done:
     if(ret_value == AXE_FAIL)
         if(*task)
-            AXE_task_decr_ref(*task, NULL);
+            (void)AXE_task_decr_ref(*task, NULL);
 
     return ret_value;
 } /* end AXE_task_create_barrier() */
@@ -303,10 +308,10 @@ AXE_task_worker(void *_task)
 
     /* Main loop */
     do {
-        /* Mark task as running, if it has not been canceled */
-        if((AXE_status_t)OPA_cas_int(&task->status, (int)AXE_TASK_SCHEDULED,
-                (int)AXE_TASK_RUNNING) == AXE_TASK_SCHEDULED) {
-
+        /* Mark task as running, if it has not been canceled, and check if there
+         * is an operator function */
+        if(((AXE_status_t)OPA_cas_int(&task->status, (int)AXE_TASK_SCHEDULED,
+                (int)AXE_TASK_RUNNING) == AXE_TASK_SCHEDULED) && task->op) {
             /* Update sufficient parents array */
             /* No need to worry about contention since no other threads should
              * modify this array */
@@ -324,7 +329,8 @@ AXE_task_worker(void *_task)
     #ifdef AXE_DEBUG_REF
                     printf("AXE_task_worker: decr ref: %p\n", task->sufficient_parents[i]);
     #endif /* AXE_DEBUG_REF */
-                    AXE_task_decr_ref(task->sufficient_parents[i], NULL);
+                    if(AXE_task_decr_ref(task->sufficient_parents[i], NULL) != AXE_SUCCEED)
+                        ERROR;
 
                     if(block) {
                         /* End of block, slide block down (if necessary) */
@@ -352,12 +358,12 @@ AXE_task_worker(void *_task)
             assert(task->num_sufficient_parents <= old_num_sufficient_parents);
 
             /* Execute client task */
-            if(task->op)
-                (task->op)(task->num_necessary_parents, (AXE_task_t *)task->necessary_parents, task->num_sufficient_parents, (AXE_task_t *)task->sufficient_parents, task->op_data);
+            (task->op)(task->num_necessary_parents, (AXE_task_t *)task->necessary_parents, task->num_sufficient_parents, (AXE_task_t *)task->sufficient_parents, task->op_data);
         } /* end if */
         else {
-            /* The task is canceled */
-            assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED);
+            /* The operator function was not called, so we must remove
+             * references to all parents because the operator did not */
+            assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED) || !(task->op));
 
             /* Remove references to all necessary parents */
             for(i = 0; i < task->num_necessary_parents; i++)
@@ -534,8 +540,10 @@ AXE_task_free(AXE_task_int_t *task)
         free(task->sufficient_parents);
     if(task->free_op_data)
         (task->free_op_data)(task->op_data);
-    (void)pthread_mutex_destroy(&task->task_mutex);
-    (void)pthread_cond_destroy(&task->wait_cond);
+    if(0 != pthread_mutex_destroy(&task->task_mutex))
+        ret_value = AXE_FAIL;
+    if(0 != pthread_cond_destroy(&task->wait_cond))
+        ret_value = AXE_FAIL;
     if(task->necessary_children)
         free(task->necessary_children);
     if(task->sufficient_children)
