@@ -31,8 +31,7 @@ struct AXE_schedule_t {
     OPA_int_t               num_tasks;              /* # of tasks in scheduler */
     pthread_cond_t          wait_all_cond;          /* Condition variable for waiting for all tasks to complete */
     pthread_mutex_t         wait_all_mutex;         /* Mutex for waiting for all tasks to complete */
-    AXE_task_int_t          task_list_head;         /* Sentinel task for head of task list */
-    AXE_task_int_t          task_list_tail;         /* Sentinel task for tail of task list */
+    AXE_task_int_t          task_list_sentinel;     /* Sentinel for task list (head and tail) */
     pthread_mutex_t         task_list_mutex;        /* Mutex for task list.  Must not be taken while holding a task mutex! */
 #ifdef AXE_DEBUG_NTASKS
     OPA_int_t               nadds;
@@ -117,12 +116,10 @@ AXE_schedule_create(size_t num_threads, AXE_schedule_t **schedule/*out*/)
         ERROR;
     is_wait_all_mutex_init = TRUE;
 
-    /* Initialize task list sentinels (other fields of sentinels are not used
-     * and can be left uninitialized) */
-    (*schedule)->task_list_head.task_list_next = &(*schedule)->task_list_tail;
-    (*schedule)->task_list_head.task_list_prev = NULL;
-    (*schedule)->task_list_tail.task_list_next = NULL;
-    (*schedule)->task_list_tail.task_list_prev = &(*schedule)->task_list_head;
+    /* Initialize task list sentinel (other fields of sentinel are not used and
+     * can be left uninitialized) */
+    (*schedule)->task_list_sentinel.task_list_next = &(*schedule)->task_list_sentinel;
+    (*schedule)->task_list_sentinel.task_list_prev = &(*schedule)->task_list_sentinel;
 
     /* Initialize task list mutex */
     if(0 != pthread_mutex_init(&(*schedule)->task_list_mutex, NULL))
@@ -461,8 +458,8 @@ AXE_schedule_add_barrier(AXE_task_int_t *task)
 
     /* Iterate over all tasks in the scheduler, checking if they should be
      * parents of the barrier task */
-    for(parent_task = schedule->task_list_head.task_list_next;
-            parent_task != &schedule->task_list_tail;
+    for(parent_task = schedule->task_list_sentinel.task_list_next;
+            parent_task != &schedule->task_list_sentinel;
             parent_task = parent_task->task_list_next) {
         /* Acquire parent task mutex */
 #ifdef AXE_DEBUG_LOCK
@@ -1129,8 +1126,8 @@ AXE_schedule_cancel_all(AXE_schedule_t *schedule,
 
     /* Loop over all tasks in the task list, marking all that are not running or
      * done as canceled */
-    for(task = schedule->task_list_head.task_list_next;
-            task != &schedule->task_list_tail;
+    for(task = schedule->task_list_sentinel.task_list_next;
+            task != &schedule->task_list_sentinel;
             task = task->task_list_next) {
         assert(task->engine->schedule == schedule);
 
@@ -1253,8 +1250,8 @@ AXE_schedule_free(AXE_schedule_t *schedule)
 #endif /* AXE_DEBUG_NTASKS */
 
     /* Free all remaining tasks.  They should all be done or canceled. */
-    for(task = schedule->task_list_head.task_list_next;
-            task != &schedule->task_list_tail;
+    for(task = schedule->task_list_sentinel.task_list_next;
+            task != &schedule->task_list_sentinel;
             task = next) {
         assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE));
 
@@ -1342,11 +1339,11 @@ AXE_schedule_add_common(AXE_task_int_t *task)
         ERROR;
 
     /* Update list */
-    assert(schedule->task_list_head.task_list_next);
-    assert(schedule->task_list_head.task_list_next->task_list_prev == &schedule->task_list_head);
-    task->task_list_next = schedule->task_list_head.task_list_next;
-    task->task_list_prev = &schedule->task_list_head;
-    schedule->task_list_head.task_list_next = task;
+    assert(schedule->task_list_sentinel.task_list_next);
+    assert(schedule->task_list_sentinel.task_list_next->task_list_prev == &schedule->task_list_sentinel);
+    task->task_list_next = schedule->task_list_sentinel.task_list_next;
+    task->task_list_prev = &schedule->task_list_sentinel;
+    schedule->task_list_sentinel.task_list_next = task;
     task->task_list_next->task_list_prev = task;
 
     /* Unlock task list mutex */
