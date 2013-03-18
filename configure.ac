@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([axe], [0.1a], [nfortne2@hdfgroup.org])
+AC_INIT([axe], [0.1b], [nfortne2@hdfgroup.org])
 AC_CONFIG_AUX_DIR([config])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([src/AXE.c])
