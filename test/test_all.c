@@ -1,16 +1,10 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * Copyright by The HDF Group.                                               *
- * Copyright by the Board of Trustees of the University of Illinois.         *
  * All rights reserved.                                                      *
  *                                                                           *
- * This file is part of HDF5.  The full HDF5 copyright notice, including     *
- * terms governing use, modification, and redistribution, is contained in    *
- * the files COPYING and Copyright.html.  COPYING can be found at the root   *
- * of the source code distribution tree; Copyright.html can be found at the  *
- * root level of an installed copy of the electronic HDF5 document set and   *
- * is linked from the top-level documents page.  It can also be found at     *
- * http://hdfgroup.org/HDF5/doc/Copyright.html.  If you do not have          *
- * access to either file, you may request a copy from help@hdfgroup.org.     *
+ * This file is part of AXE.  The full AXE copyright notice, including terms *
+ * governing use, modification, and redistribution, is contained in the file *
+ * COPYING at the root of the source code distribution tree.                 *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
@@ -106,6 +100,9 @@ size_t num_threads_g[] = {1, 2, 3, 5, 10};
  * num_threads_g, reduce the number of iterations by the factor idicated in this
  * array */
 size_t iter_reduction_g[] = {1, 1, 1, 3, 5};
+
+/* Definitions needed for limiting the maximum number of threads */
+MAX_NTHREADS_DEFINE
 
 
 /*-------------------------------------------------------------------------
@@ -1874,6 +1871,9 @@ test_barrier_helper(size_t num_necessary_parents,
         task_data[i].cond_signal_sent = 0;
     } /* end for */
 
+    /* Reserve threads for engine */
+    MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
+
     /* Create AXE engine */
     if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
@@ -2590,6 +2590,9 @@ test_barrier_helper(size_t num_necessary_parents,
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
 
+    /* Release threads used by engine */
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
+
     /* Destroy mutex */
     if(0 != pthread_mutex_destroy(&mutex1))
         TEST_ERROR;
@@ -2600,6 +2603,7 @@ test_barrier_helper(size_t num_necessary_parents,
 
 error:
     (void)AXEterminate_engine(engine, FALSE);
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, );
 
     (void)pthread_mutex_destroy(&mutex1);
 
@@ -3576,6 +3580,9 @@ test_remove_all_helper(size_t num_necessary_parents,
         task_data[i].cond_mutex = NULL;
     } /* end for */
 
+    /* Reserve threads for engine */
+    MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
+
     /* Create AXE engine */
     if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
@@ -3964,6 +3971,9 @@ test_remove_all_helper(size_t num_necessary_parents,
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
 
+    /* Release threads used by engine */
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
+
     /* Destroy mutexes and condition variables */
     if(0 != pthread_mutex_destroy(&mutex))
         TEST_ERROR;
@@ -3978,6 +3988,7 @@ test_remove_all_helper(size_t num_necessary_parents,
 
 error:
     (void)AXEterminate_engine(engine, FALSE);
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, );
 
     (void)pthread_mutex_destroy(&mutex);
     (void)pthread_cond_destroy(&cond);
@@ -4032,6 +4043,9 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     /*
      * Test 1: Wait all
      */
+    /* Reserve threads for engine */
+    MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
+
     /* Create AXE engine */
     if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
@@ -4065,6 +4079,9 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = FALSE;
+
+    /* Release threads used by engine */
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
 
     /* Verify results - all tasks should have completed */
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
@@ -4101,6 +4118,9 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     /*
      * Test 2: No wait all
      */
+    /* Reserve threads for engine */
+    MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
+
     /* Create AXE engine */
     if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
@@ -4134,6 +4154,9 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = FALSE;
+
+    /* Release threads used by engine */
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
 
     /* Verify results */
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
@@ -4192,8 +4215,10 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     return;
 
 error:
-    if(engine_init)
+    if(engine_init) {
         (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
 
     OPA_incr_int(&helper_data->nfailed);
 
@@ -4252,6 +4277,9 @@ test_num_threads_helper(size_t num_necessary_parents,
         task_data[i].cond_mutex = NULL;
         task_data[i].cond_signal_sent = 0;
     } /* end for */
+
+    /* Reserve threads for engine */
+    MAX_NTHREADS_RESERVE(2, TEST_ERROR);
 
     /* Create AXE engine with 2 threads */
     if(AXEcreate_engine(2, &engine) != AXE_SUCCEED)
@@ -4581,6 +4609,9 @@ test_num_threads_helper(size_t num_necessary_parents,
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
 
+    /* Release threads used by engine */
+    MAX_NTHREADS_RELEASE(2, TEST_ERROR);
+
     /* Destroy mutexes and condition variables */
     if(0 != pthread_mutex_destroy(&mutex1))
         TEST_ERROR;
@@ -4597,6 +4628,7 @@ test_num_threads_helper(size_t num_necessary_parents,
 
 error:
     (void)AXEterminate_engine(engine, FALSE);
+    MAX_NTHREADS_RELEASE(2, );
 
     (void)pthread_mutex_destroy(&mutex1);
     (void)pthread_mutex_destroy(&mutex2);
@@ -4833,7 +4865,7 @@ error:
  * Return:      void
  *
  * Programmer:  Neil Fortner
- *              February-March, 2013
+ *              March 11, 2013
  *
  *-------------------------------------------------------------------------
  */
@@ -4994,6 +5026,8 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
     OPA_store_int(&AXE_debug_nadds, 0);
 #endif /* AXE_DEBUG_PERF */
 
+    helper_data.engine = NULL;
+
     /* Perform niter iterations of the test */
     for(i = 0; i < niter; i++) {
         /* Initialize helper data struct */
@@ -5002,7 +5036,9 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
         OPA_store_int(&helper_data.ncomplete, 0);
         helper_data.parallel_mutex = NULL;
 
-        /* Create AXE engine if requested */
+        /* Create AXE engine if requested.  No need to worry about number of
+         * threads because it has already been cleared by main and no other
+         * tests will be run at the same time */
         if(create_engine) {
             if(AXEcreate_engine(num_threads, &helper_data.engine) != AXE_SUCCEED)
                 TEST_ERROR;
@@ -5020,9 +5056,11 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
             TEST_ERROR;
 
         /* Terminate engine */
-        if(create_engine)
+        if(create_engine) {
             if(AXEterminate_engine(helper_data.engine, TRUE) != AXE_SUCCEED)
                 TEST_ERROR;
+            helper_data.engine = NULL;
+        } /* end if */
     } /* end for */
 
     PASSED();
@@ -5034,7 +5072,10 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
     return 0;
 
 error:
-    (void)AXEterminate_engine(helper_data.engine, FALSE);
+    if(helper_data.engine) {
+        (void)AXEterminate_engine(helper_data.engine, FALSE);
+        MAX_NTHREADS_RELEASE(num_threads, );
+    } /* end if */
 
     return 1;
 } /* end test_serial() */
@@ -5098,9 +5139,15 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     OPA_store_int(&helper_data.ncomplete, 0);
     helper_data.parallel_mutex = &parallel_mutex;
 
+    /* Reserve threads for internal engine */
+    MAX_NTHREADS_RESERVE(num_threads_int, TEST_ERROR);
+
     /* Create internal engine for use by helper tasks */
     if(AXEcreate_engine(num_threads_int, &helper_data.engine) != AXE_SUCCEED)
         TEST_ERROR;
+
+    /* Reserve threads for meta engine */
+    MAX_NTHREADS_RESERVE(num_threads_meta, TEST_ERROR);
 
     /* Create meta engine to assist in spawning helper tasks */
     if(AXEcreate_engine(num_threads_meta, &meta_engine) != AXE_SUCCEED)
@@ -5207,6 +5254,9 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
         TEST_ERROR;
     meta_engine_init = FALSE;
 
+    /* Release threads used by meta engine */
+    MAX_NTHREADS_RELEASE(num_threads_meta, TEST_ERROR);
+
     /* Verify results */
     if(OPA_load_int(&helper_data.nfailed) != 0)
         TEST_ERROR;
@@ -5234,6 +5284,9 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     if(AXEterminate_engine(helper_data.engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
 
+    /* Release threads used by internal engine */
+    MAX_NTHREADS_RELEASE(num_threads_int, TEST_ERROR);
+
     PASSED();
 
 #ifdef AXE_DEBUG_PERF
@@ -5243,9 +5296,12 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     return 0;
 
 error:
-    if(meta_engine_init)
+    if(meta_engine_init) {
         (void)AXEterminate_engine(meta_engine, FALSE);
+        MAX_NTHREADS_RELEASE(num_threads_meta, );
+    } /* end if */
     (void)AXEterminate_engine(helper_data.engine, FALSE);
+    MAX_NTHREADS_RELEASE(num_threads_int, );
     (void)pthread_mutex_destroy(&parallel_mutex);
 
     return 1;
@@ -5272,27 +5328,40 @@ main(int argc, char **argv)
     int i;
     int nerrors = 0;
 
+    /* Initialize framework for limiting maximum number of threads */
+    MAX_NTHREADS_INIT(puts("FAILED to initialize!\n"); exit(1));
+
     /* Loop over number of threads */
     for(i = 0; i < (sizeof(num_threads_g) / sizeof(num_threads_g[0])); i++) {
-        printf("----Testing with %d threads----\n", (int)num_threads_g[i]); fflush(stdout);
+        /* Check if we can run with this many threads */
+        MAX_NTHREADS_CHECK_STATIC_IF(num_threads_g[i]) {
+            printf("----Testing with %d threads----\n", (int)num_threads_g[i]); fflush(stdout);
 
-        /* The tests */
-        nerrors += test_serial(test_simple_helper, num_threads_g[i], SIMPLE_NITER / iter_reduction_g[i], TRUE, "simple tasks");
-        nerrors += test_serial(test_necessary_helper, num_threads_g[i], NECESSARY_NITER / iter_reduction_g[i], TRUE, "necessary task parents");
-        nerrors += test_serial(test_sufficient_helper, num_threads_g[i], SUFFICIENT_NITER / iter_reduction_g[i], TRUE, "sufficient task parents");
-        nerrors += test_serial(test_barrier_helper, num_threads_g[i], BARRIER_NITER / iter_reduction_g[i], FALSE, "barrier tasks");
-        nerrors += test_serial(test_get_op_data_helper, num_threads_g[i], GET_OP_DATA_NITER / iter_reduction_g[i], TRUE, "AXEget_op_data()");
-        nerrors += test_serial(test_finish_all_helper, num_threads_g[i], FINISH_ALL_NITER / iter_reduction_g[i], TRUE, "AXEfinish_all()");
-        nerrors += test_serial(test_free_op_data_helper, num_threads_g[i], FREE_OP_DATA_NITER / iter_reduction_g[i], TRUE, "free_op_data callback");
-        nerrors += test_serial(test_remove_helper, num_threads_g[i], REMOVE_NITER / iter_reduction_g[i], TRUE, "AXEremove()");
-        nerrors += test_serial(test_remove_all_helper, num_threads_g[i], REMOVE_ALL_NITER / iter_reduction_g[i], FALSE, "AXEremove_all()");
-        nerrors += test_serial(test_terminate_engine_helper, num_threads_g[i], TERMINATE_ENGINE_NITER / iter_reduction_g[i], FALSE, "AXEterminate_engine()");
-        nerrors += test_serial(test_fractal_helper, num_threads_g[i], FRACTAL_NITER / iter_reduction_g[i], TRUE, "fractal task creation");
-        nerrors += test_serial(test_fractal_nodep_helper, num_threads_g[i], FRACTAL_NODEP_NITER / iter_reduction_g[i], TRUE, "fractal task creation without dependencies");
-        nerrors += test_parallel(PARALLEL_NUM_THREADS_META, num_threads_g[i], PARALLEL_NITER / iter_reduction_g[i]);
+            /* The tests */
+            nerrors += test_serial(test_simple_helper, num_threads_g[i], SIMPLE_NITER / iter_reduction_g[i], TRUE, "simple tasks");
+            nerrors += test_serial(test_necessary_helper, num_threads_g[i], NECESSARY_NITER / iter_reduction_g[i], TRUE, "necessary task parents");
+            nerrors += test_serial(test_sufficient_helper, num_threads_g[i], SUFFICIENT_NITER / iter_reduction_g[i], TRUE, "sufficient task parents");
+            nerrors += test_serial(test_barrier_helper, num_threads_g[i], BARRIER_NITER / iter_reduction_g[i], FALSE, "barrier tasks");
+            nerrors += test_serial(test_get_op_data_helper, num_threads_g[i], GET_OP_DATA_NITER / iter_reduction_g[i], TRUE, "AXEget_op_data()");
+            nerrors += test_serial(test_finish_all_helper, num_threads_g[i], FINISH_ALL_NITER / iter_reduction_g[i], TRUE, "AXEfinish_all()");
+            nerrors += test_serial(test_free_op_data_helper, num_threads_g[i], FREE_OP_DATA_NITER / iter_reduction_g[i], TRUE, "free_op_data callback");
+            nerrors += test_serial(test_remove_helper, num_threads_g[i], REMOVE_NITER / iter_reduction_g[i], TRUE, "AXEremove()");
+            nerrors += test_serial(test_remove_all_helper, num_threads_g[i], REMOVE_ALL_NITER / iter_reduction_g[i], FALSE, "AXEremove_all()");
+            nerrors += test_serial(test_terminate_engine_helper, num_threads_g[i], TERMINATE_ENGINE_NITER / iter_reduction_g[i], FALSE, "AXEterminate_engine()");
+            nerrors += test_serial(test_fractal_helper, num_threads_g[i], FRACTAL_NITER / iter_reduction_g[i], TRUE, "fractal task creation");
+            nerrors += test_serial(test_fractal_nodep_helper, num_threads_g[i], FRACTAL_NODEP_NITER / iter_reduction_g[i], TRUE, "fractal task creation without dependencies");
+            MAX_NTHREADS_CHECK_STATIC_IF(PARALLEL_NUM_THREADS_META + num_threads_g[i] + (num_threads_g[i] > 2 ? num_threads_g[i] : 2))
+                nerrors += test_parallel(PARALLEL_NUM_THREADS_META, num_threads_g[i], PARALLEL_NITER / iter_reduction_g[i]);
+        } /* end MAX_NTHREADS_CHECK_STATIC_IF */
     } /* end for */
+
     printf("----Tests with fixed number of threads----\n"); fflush(stdout);
-    nerrors += test_serial(test_num_threads_helper, 2, NUM_THREADS_NITER, FALSE, "number of threads");
+    /* Check if we can run with 2 threads */
+    MAX_NTHREADS_CHECK_STATIC_IF(2)
+        nerrors += test_serial(test_num_threads_helper, 2, NUM_THREADS_NITER, FALSE, "number of threads");
+
+    /* Free memory allocated for limiting number of threads */
+    MAX_NTHREADS_FREE(puts("FAILED to shut down properly!\n"); exit(1));
 
     /* Print message about failure or success and exit */
     if(nerrors) {

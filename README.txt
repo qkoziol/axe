@@ -13,5 +13,8 @@ either no other threads are operating on that engine, or wait_all is set to true
 and other tasks are still executing in the engine.  In the second case, other
 threads must finish with the engine before all tasks complete.
 
+This library reserves no threads for internal use - all scheduling is done by
+the application thread during API calls and by task worker threads.
+
 Primary contact for AXE is Neil Fortner <nfortne2@hdfgroup.org>
 

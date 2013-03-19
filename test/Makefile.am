@@ -1,6 +1,15 @@
+# Copyright by The HDF Group.
+# All rights reserved.
+#
+# This file is part of AXE.  The full AXE copyright notice, including terms
+# governing use, modification, and redistribution, is contained in the file
+# COPYING at the root of the source code distribution tree.
+
 AM_CFLAGS = -Wall
 
-TESTS = test_all
+TESTS = check_max_nthreads test_all
+
+test_all.log: check_max_nthreads.log
 
 check_PROGRAMS = $(TESTS)
 
@@ -11,4 +20,6 @@ DEPENDENCIES = libaxe.la
 test_all_SOURCES = test_all.c axe_test.h
 
 AM_CPPFLAGS = -I$(top_srcdir)/src
+
+CHECK_CLEANFILES = max_nthreads.txt
 

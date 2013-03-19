@@ -1,5 +1,12 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
+#
+# Copyright by The HDF Group.
+# All rights reserved.
+#
+# This file is part of AXE.  The full AXE copyright notice, including terms
+# governing use, modification, and redistribution, is contained in the file
+# COPYING at the root of the source code distribution tree.
 
 AC_PREREQ(2.59)
 AC_INIT([axe], [0.1b], [nfortne2@hdfgroup.org])
