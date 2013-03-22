@@ -116,7 +116,6 @@ esac
 
 # ----------------------------------------------------------------------
 # Check for presence of sched_yield.  If not present, check for pthread_yield.
-# Check for presence of pthread_yield.  If not present, check for sched_yield.
 AC_CHECK_HEADER(sched.h,
     [AC_CHECK_FUNCS(sched_yield,
         ,

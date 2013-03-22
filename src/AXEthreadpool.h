@@ -30,8 +30,10 @@ typedef AXE_error_t (*AXE_thread_op_t)(void *op_data);
 AXE_error_t AXE_thread_pool_create(size_t num_threads,
     AXE_thread_pool_t **thread_pool/*out*/);
 AXE_error_t AXE_thread_pool_try_acquire(AXE_thread_pool_t *thread_pool,
-    AXE_thread_t **thread/*out*/);
-void AXE_thread_pool_release(AXE_thread_t *thread);
+    _Bool exclusive_waiter, AXE_thread_t **thread/*out*/);
+AXE_error_t AXE_thread_pool_release(AXE_thread_t *thread);
+AXE_error_t AXE_thread_pool_running(AXE_thread_pool_t *thread_pool);
+void AXE_thread_pool_sleeping(AXE_thread_pool_t *thread_pool);
 AXE_error_t AXE_thread_pool_launch(AXE_thread_t *thread,
     AXE_thread_op_t thread_op, void *thread_op_data);
 AXE_error_t AXE_thread_pool_free(AXE_thread_pool_t *thread_pool);

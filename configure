@@ -11642,7 +11642,6 @@ esac
 
 # ----------------------------------------------------------------------
 # Check for presence of sched_yield.  If not present, check for pthread_yield.
-# Check for presence of pthread_yield.  If not present, check for sched_yield.
 ac_fn_c_check_header_mongrel "$LINENO" "sched.h" "ac_cv_header_sched_h" "$ac_includes_default"
 if test "x$ac_cv_header_sched_h" = xyes; then :
   for ac_func in sched_yield

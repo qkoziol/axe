@@ -20,8 +20,6 @@
 struct AXE_schedule_t {
     OPA_Queue_info_t        scheduled_queue;        /* Queue of tasks that are "scheduled" (can be executed now) */
     pthread_mutex_t         scheduled_queue_mutex;  /* Mutex for dequeueing from scheduled_queue */
-    OPA_int_t               sleeping_workers;       /* # of worker threads not guaranteed to try dequeueing tasks before they complete */
-    OPA_int_t               closing;                /* Whether we are shutting down the scheduler.  Currently only used to prevent a rare race condition.  Could be expanded to short-circuit traversal of canceled tasks when shutting down. */
     OPA_int_t               num_tasks;              /* # of tasks in scheduler */
     pthread_cond_t          wait_all_cond;          /* Condition variable for waiting for all tasks to complete */
     pthread_mutex_t         wait_all_mutex;         /* Mutex for waiting for all tasks to complete */
@@ -56,11 +54,7 @@ OPA_int_t AXE_debug_nadds = OPA_INT_T_INITIALIZER(0);
 /*-------------------------------------------------------------------------
  * Function:    AXE_schedule_create
  *
- * Purpose:     Creates a schedule for a thread pool with the specified
- *              number of threads.  The scheduler needs to know the numer
- *              of threads in order to guarantee that at least that many
- *              threads will be available for simultaneous executiong, in
- *              case the application algorithm depends on it.
+ * Purpose:     Creates an empty schedule.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
@@ -71,7 +65,7 @@ OPA_int_t AXE_debug_nadds = OPA_INT_T_INITIALIZER(0);
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_schedule_create(size_t num_threads, AXE_schedule_t **schedule/*out*/)
+AXE_schedule_create(AXE_schedule_t **schedule/*out*/)
 {
     _Bool is_queue_mutex_init = FALSE;
     _Bool is_wait_all_cond_init = FALSE;
@@ -92,10 +86,6 @@ AXE_schedule_create(size_t num_threads, AXE_schedule_t **schedule/*out*/)
     if(0 != pthread_mutex_init(&(*schedule)->scheduled_queue_mutex, NULL))
         ERROR;
     is_queue_mutex_init = TRUE;
-
-    /* Initialize sleeping_threads and closing */
-    OPA_store_int(&(*schedule)->sleeping_workers, (int)num_threads);
-    OPA_store_int(&(*schedule)->closing, FALSE);
 
     /* Initialize number of tasks */
     OPA_store_int(&(*schedule)->num_tasks, 0);
@@ -145,34 +135,6 @@ done:
 
     return ret_value;
 } /* end AXE_schedule_create() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    AXE_schedule_worker_running
- *
- * Purpose:     Informs the scheduler that a worker is running, and
- *              gauaranteed to check the schedule for new tasks before
- *              returning to the thread pool.
- *
- * Return:      Success: AXE_SUCCEED
- *              Failure: AXE_FAIL
- *
- * Programmer:  Neil Fortner
- *              February-March, 2013
- *
- *-------------------------------------------------------------------------
- */
-void
-AXE_schedule_worker_running(AXE_schedule_t *schedule)
-{
-#ifdef NDEBUG
-    OPA_decr_int(&schedule->sleeping_workers);
-#else /* NDEBUG */
-    assert(OPA_fetch_and_decr_int(&schedule->sleeping_workers) > 0);
-#endif /* NDEBUG */
-
-    return;
-} /* end AXE_schedule_worker_running() */
 
 
 /*-------------------------------------------------------------------------
@@ -593,6 +555,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
     AXE_task_int_t *free_list_head = NULL;
     AXE_task_int_t **free_list_tail_ptr = &free_list_head;
     AXE_schedule_t *schedule;
+    AXE_thread_pool_t *thread_pool;
     AXE_thread_t *thread;
     AXE_status_t prev_status;
     size_t i;
@@ -602,6 +565,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
     assert(*task);
 
     schedule = (*task)->engine->schedule;
+    thread_pool = (*task)->engine->thread_pool;
 
     /* Acquire task mutex while iterating over child arrays and changing state.
      * No other mutexes will be acquired while we hold this one. */
@@ -839,7 +803,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
          * check the scheduled queue */
         /* Note no read/write barrier is needed after this only because of the
          * mutex */
-        OPA_incr_int(&schedule->sleeping_workers);
+        AXE_thread_pool_sleeping(thread_pool);
 
         /* Lock scheduled queue mutex.  This mutex must be released
          * immediately after the dequeue. */
@@ -858,11 +822,8 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
         } /* end if */
         else {
             /* We got a task so we are not sleeping any more */
-#ifdef NDEBUG
-            OPA_decr_int(&schedule->sleeping_workers);
-#else /* NDEBUG */
-            assert(OPA_fetch_and_decr_int(&schedule->sleeping_workers) > 0);
-#endif /* NDEBUG */
+            if(AXE_thread_pool_running(thread_pool) != AXE_SUCCEED)
+                ERROR;
 
             /* Retrieve task from scheduled queue */
             OPA_Queue_dequeue(&schedule->scheduled_queue, *task, AXE_task_int_t, scheduled_queue_hdr);
@@ -880,48 +841,8 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
             assert(*task);
 
             /* Try to retrieve a thread from the thread pool */
-            /* To prevent the race condition where a worker threads are past the
-             * point where they look for tasks but have not yet been released to
-             * the thread pool, delaying or preventing execution of this task,
-             * loop until we either get a thread or get confirmation that all
-             * threads are busy and will attempt to acquire a task when they
-             * complete */
-            do {
-                /* Try to retrieve a thread from the thread pool */
-                if(AXE_thread_pool_try_acquire((*task)->engine->thread_pool, &thread) != AXE_SUCCEED)
-                    ERROR;
-
-                /* If we have a thread we can exit */
-                if(thread)
-                    break;
-
-                /* Read barrier so the check on sleeping_threads happens after
-                 * the failed acquire */
-                OPA_read_barrier();
-
-                /* Check if all workers are busy and guaranteed to check the
-                 * schedule before sleeping */
-                if(OPA_load_int(&schedule->sleeping_workers) == 0)
-                    /* All workers are busy and the first one to finish will
-                     * pick up this task.  We can go ahead and return. */
-                    break;
-                else {
-                    /* If the schedule is closing, then there may be threads
-                     * marked as "sleeping" that have been shut down.  In this
-                     * case just return as it does not matter if tasks get
-                     * ignored after we begin closing. */
-                    if(OPA_load_int(&schedule->closing))
-                        break;
-
-                    /* The queue was empty but at least one worker was possibly
-                     * soon to be finished.  Give the finishing workers a chance
-                     * to finish. */
-                    AXE_YIELD();
-#ifdef AXE_DEBUG_PERF
-                    OPA_incr_int(&AXE_debug_nspins_finish);
-#endif /* AXE_DEBUG_PERF */
-                } /* end else */
-            } while(1);
+            if(AXE_thread_pool_try_acquire(thread_pool, TRUE, &thread) != AXE_SUCCEED)
+                ERROR;
 
             if(thread)
                 /* Launch the task */
@@ -1191,33 +1112,6 @@ done:
 
 
 /*-------------------------------------------------------------------------
- * Function:    AXE_schedule_closing
- *
- * Purpose:     Marks the specified schedule as "closing", preventing the
- *              scheduler from going out of its way to guarantee thread
- *              availability (which may not be possible because some
- *              threads may have shut down).
- *
- * Return:      Success: AXE_SUCCEED
- *              Failure: AXE_FAIL
- *
- * Programmer:  Neil Fortner
- *              February-March, 2013
- *
- *-------------------------------------------------------------------------
- */
-void
-AXE_schedule_closing(AXE_schedule_t *schedule)
-{
-    assert(schedule);
-
-    OPA_store_int(&schedule->closing, TRUE);
-
-    return;
-} /* end AXE_schedule_closing() */
-
-
-/*-------------------------------------------------------------------------
  * Function:    AXE_schedule_free
  *
  * Purpose:     Frees the specified schedule and all tasks it contains.
@@ -1397,47 +1291,9 @@ AXE_schedule_add_common(AXE_task_int_t *task)
          * there is another thread scheduling tasks which will execute at least
          * as many as it pushes.  In either case there is no need to pull more
          * than one thread. */
-        /* To prevent the race condition where a worker threads are past the
-         * point where they look for tasks but have not yet been released to the
-         * thread pool, delaying or preventing execution of this task, loop
-         * until we either get a thread or get confirmation that all threads are
-         * busy and will attempt to acquire a task when they complete */
-        do {
-            /* Try to retrieve a thread from the thread pool */
-            if(AXE_thread_pool_try_acquire(thread_pool, &thread) != AXE_SUCCEED)
-                ERROR;
-
-            /* If we have a thread we can exit */
-            if(thread)
-                break;
-
-            /* Read barrier so the check on sleeping_workers happens after
-             * the failed acquire */
-            OPA_read_barrier();
-
-            /* Check if all workers are busy and guaranteed to check the
-             * schedule before sleeping */
-            if(OPA_load_int(&schedule->sleeping_workers) == 0)
-                /* All workers are busy and the first one to finish will pick up
-                 * this task.  We can go ahead and return. */
-                break;
-            else {
-                /* If the schedule is closing, then there may be threads marked
-                 * as "sleeping" that have been shut down.  In this case just
-                 * return as it does not matter if tasks get ignored after we
-                 * begin closing. */
-                if(OPA_load_int(&schedule->closing))
-                    break;
-
-                /* The queue was empty but at least one worker was possibly soon
-                 * to be finished.  Give the finishing workers a chance to
-                 * finish. */
-                AXE_YIELD();
-#ifdef AXE_DEBUG_PERF
-                OPA_incr_int(&AXE_debug_nspins_add);
-#endif /* AXE_DEBUG_PERF */
-            } /* end else */
-        } while(1);
+        /* Try to retrieve a thread from the thread pool */
+        if(AXE_thread_pool_try_acquire(thread_pool, FALSE, &thread) != AXE_SUCCEED)
+            ERROR;
 
         /* Check if we were able to acquire a thread */
         if(thread) {
@@ -1454,7 +1310,8 @@ AXE_schedule_add_common(AXE_task_int_t *task)
                     ERROR;
 
                 /* Release thread back to thread pool */
-                AXE_thread_pool_release(thread);
+                if(AXE_thread_pool_release(thread) != AXE_SUCCEED)
+                    ERROR;
                 thread = NULL;
             } /* end if */
             else {

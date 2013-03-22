@@ -16,9 +16,13 @@
 /* Thread pool structure */
 struct AXE_thread_pool_t {
     OPA_Queue_info_t        thread_queue;       /* Queue of threads available to be run */
-    pthread_mutex_t         thread_queue_mutex; /* Mutex for dequeueing from thread_queue */
+    pthread_mutex_t         thread_queue_mutex; /* Mutex for dequeueing from thread_queue, and checking thread_wait_cond */
     pthread_attr_t          thread_attr;        /* Pthread attribute for thread creation */
-    OPA_int_t               closing;            /* Boolean variable indicating if the thread pool is shutting down.  Needed to prevent the race condition described in AXE_thread_pool_worker(). */
+    OPA_int_t               closing;            /* Boolean variable indicating if the thread pool is shutting down.  Needed to prevent race conditions. */
+    OPA_int_t               num_sleeping_threads; /* Number of threads that are enqueued or may be enqueued soon and should be considered "available" */
+    _Bool                   exclusive_waiter;   /* Whether an "exclusive" thread is waiting */
+    int                     num_waiters;        /* Number of threads waiting for a thread */
+    pthread_cond_t          thread_wait_cond;   /* Condition variable for waiting for thread */
     size_t                  num_threads;        /* Number of threads */
     AXE_thread_t            **threads;          /* Array of thread structs */
 };
@@ -62,6 +66,7 @@ AXE_thread_pool_create(size_t num_threads,
     AXE_thread_t *thread;
     _Bool is_thread_mutex_init = FALSE;
     _Bool is_thread_attr_init = FALSE;
+    _Bool is_thread_wait_cond_init = FALSE;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     *thread_pool = NULL;
@@ -94,6 +99,16 @@ AXE_thread_pool_create(size_t num_threads,
 
     /* Initialize closing field */
     OPA_store_int(&(*thread_pool)->closing, FALSE);
+
+    /* Initialize num_sleeping_threads, exclusive_waiter, and num_waiters */
+    OPA_store_int(&(*thread_pool)->num_sleeping_threads, (int)num_threads);
+    (*thread_pool)->exclusive_waiter = FALSE;
+    (*thread_pool)->num_waiters = 0;
+
+    /* Initialize thread_wait_cond */
+    if(0 != pthread_cond_init(&(*thread_pool)->thread_wait_cond, NULL))
+        ERROR;
+    is_thread_wait_cond_init = TRUE;
 
     /* Allocate threads array */
     if(NULL == ((*thread_pool)->threads = (AXE_thread_t **)malloc(num_threads * sizeof(AXE_thread_t *))))
@@ -138,6 +153,8 @@ done:
                     (void)pthread_attr_destroy(&(*thread_pool)->thread_attr);
                 if(is_thread_mutex_init);
                     (void)pthread_mutex_destroy(&(*thread_pool)->thread_queue_mutex);
+                if(is_thread_wait_cond_init);
+                    (void)pthread_cond_destroy(&(*thread_pool)->thread_wait_cond);
                 if((*thread_pool)->threads)
                     free((*thread_pool)->threads);
                 free(*thread_pool);
@@ -154,8 +171,16 @@ done:
  *
  * Purpose:     Attempts to acquire a thread for later use with
  *              AXE_thread_pool_launch() or  AXE_thread_pool_release().
- *              Does not block.  If a thread was acquired it is returned
- *              in *thread.
+ *              If a thread was acquired it is returned in *thread.
+ *
+ *              If the thread queue is empty but there are threads
+ *              marked "sleeping" (may be enqueued soon), this thread
+ *              waits until signaled that either a thread has been
+ *              enqueued or no threads are sleeping.
+ *
+ *              If exclusive_waiter is set to TRUE, then if this thread
+ *              waits other threads are prevented from waiting (though
+ *              they are not woken up if they were already waiting).
  *
  *              We use try_acquire() followed by launch() instead of just
  *              try_launch() to avoid interfering with the order of
@@ -181,8 +206,10 @@ done:
  */
 AXE_error_t
 AXE_thread_pool_try_acquire(AXE_thread_pool_t *thread_pool,
-    AXE_thread_t **thread/*out*/)
+    _Bool exclusive_waiter, AXE_thread_t **thread/*out*/)
 {
+    int is_empty;
+    _Bool waiting = FALSE;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(thread_pool);
@@ -196,8 +223,43 @@ AXE_thread_pool_try_acquire(AXE_thread_pool_t *thread_pool,
     if(0 != pthread_mutex_lock(&thread_pool->thread_queue_mutex))
         ERROR;
 
-    /* Check if the queue is empty */
-    if(OPA_Queue_is_empty(&thread_pool->thread_queue))
+    /* Check if the queue is empty.  If so, and if there are threads marked as
+     * "sleeping" and the thread pool is not closing, wait until we are signaled
+     * that one of these conditions changes.  Note that OPA_Queue_is_empty() is
+     * always called after pthread_cond_wait(), so the mutex lock is not
+     * interrupted between the last call to OPA_Queue_is_empty() and the call to
+     * OPA_Queue_dequeue(). */
+    while((is_empty = OPA_Queue_is_empty(&thread_pool->thread_queue))
+            && (OPA_load_int(&thread_pool->num_sleeping_threads) > 0)
+            && !OPA_load_int(&thread_pool->closing)) {
+        /* Check to see if we should give up due to an exclusive waiter, and
+         * set the thread pool's exclusive_waiter flag if appropriate.  Also
+         * increment the number of waiters so signals get sent. */
+        if(!waiting) {
+            if(thread_pool->exclusive_waiter)
+                break;
+            if(exclusive_waiter) {
+                thread_pool->exclusive_waiter = TRUE;
+            } /* end if */
+            waiting = TRUE;
+            thread_pool->num_waiters++;
+        } /* end if */
+
+        /* Queue is empty and threads should soon become available.  Wait for
+         * signal. */
+        if(0 != pthread_cond_wait(&thread_pool->thread_wait_cond, &thread_pool->thread_queue_mutex))
+            ERROR;
+    } /* end while */
+
+    /* Reset exclusive_waiter flag and num_waiters */
+    if(waiting) {
+        if(exclusive_waiter)
+            thread_pool->exclusive_waiter = FALSE;
+        thread_pool->num_waiters--;
+    } /* end if */
+
+    /* If the queue is empty set *thread to NULL, otherwise dequeue a thread */
+    if(is_empty)
         *thread = NULL;
     else {
         /* Dequeue waiting thread */
@@ -217,7 +279,8 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    AXE_thread_pool_release
  *
- * Purpose:     Releases the specified thread back to the thread pool.
+ * Purpose:     Adds the specified thread back to the thread queue and
+ *              signals a process waiting for a thread.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
@@ -227,16 +290,117 @@ done:
  *
  *-------------------------------------------------------------------------
  */
-void
+AXE_error_t
 AXE_thread_pool_release(AXE_thread_t *thread)
 {
+    AXE_error_t ret_value = AXE_SUCCEED;
+
     assert(thread);
 
     /* Push thread back onto free thread queue */
     OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AXE_thread_t, thread_queue_hdr);
 
-    return;
+    /* Lock thread queue mutex */
+    if(0 != pthread_mutex_lock(&thread->thread_pool->thread_queue_mutex))
+        ERROR;
+
+    /* Send signal that a new thread is available, if any threads are waiting
+     * for the signal */
+    if(thread->thread_pool->num_waiters > 0)
+        if(0 != pthread_cond_signal(&thread->thread_pool->thread_wait_cond))
+            ERROR;
+
+    /* Unlock thread queue mutex */
+    if(0 != pthread_mutex_unlock(&thread->thread_pool->thread_queue_mutex))
+        ERROR;
+
+done:
+    return ret_value;
 } /* end AXE_thread_pool_release() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXE_thread_pool_running
+ *
+ * Purpose:     Inform the thread pool that the thread is running and may
+ *              not return soon.  If this was the last sleeping thread,
+ *              sends a signal to threads waiting for a thread that they
+ *              need not wait any longer, as none will be available soon.
+ *
+ *              This function, together with AXE_thread_pool_sleeping(),
+ *              allows the client to guarantee concurrent availability of
+ *              num_threads threads.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              March 11, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXE_thread_pool_running(AXE_thread_pool_t *thread_pool)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(thread_pool);
+
+    /* Decrement the number of sleeping threads, and if this was the last
+     * sleeping thread broadcast signal that no new threads will become
+     * available soon */
+    if(OPA_decr_and_test_int(&thread_pool->num_sleeping_threads)) {
+        /* Lock thread queue mutex */
+        if(0 != pthread_mutex_lock(&thread_pool->thread_queue_mutex))
+            ERROR;
+
+        /* Send the signal if there are any threads waiting for it */
+        if(thread_pool->num_waiters > 0)
+            if(0 != pthread_cond_broadcast(&thread_pool->thread_wait_cond))
+                ERROR;
+
+        /* Unlock thread queue mutex */
+        if(0 != pthread_mutex_unlock(&thread_pool->thread_queue_mutex))
+            ERROR;
+    } /* end if */
+
+done:
+    return ret_value;
+} /* end AXE_thread_pool_running() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXE_thread_pool_sleeping
+ *
+ * Purpose:     Inform the thread pool that the thread is sleeping and may
+ *              return soon.  The client should call this at the point it
+ *              wants other threads requesting a thread to wait until this
+ *              thread returns.  This call may be reversed by a subsequent
+ *              call to AXE_thread_pool_running(), useful if a thread no
+ *              longer needs to be waited for.
+ *
+ *              This function, together with AXE_thread_pool_running(),
+ *              allows the client to guarantee concurrent availability of
+ *              num_threads threads.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              March 11, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+AXE_thread_pool_sleeping(AXE_thread_pool_t *thread_pool)
+{
+    assert(thread_pool);
+
+    /* Increment the number of sleeping threads */
+    OPA_incr_int(&thread_pool->num_sleeping_threads);
+
+    return;
+} /* end AXE_thread_pool_sleeping() */
 
 
 /*-------------------------------------------------------------------------
@@ -312,6 +476,20 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
     /* Mark thread pool as closing, to prevent rare race condition */
     OPA_store_int(&thread_pool->closing, TRUE);
 
+    /* Lock thread queue mutex */
+    if(0 != pthread_mutex_lock(&thread_pool->thread_queue_mutex))
+        ERROR;
+
+    /* Signal that the thread pool is closing, if any threads are waiting for a
+     * thread to become available */
+    if(thread_pool->num_waiters > 0)
+        if(0 != pthread_cond_broadcast(&thread_pool->thread_wait_cond))
+            ERROR;
+
+    /* Unlock thread queue mutex */
+    if(0 != pthread_mutex_unlock(&thread_pool->thread_queue_mutex))
+        ERROR;
+
     /* Note no memory barrier is necessary here because of the mutexes */
 
     /* Shut down all threads */
@@ -378,6 +556,10 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
     if(0 != pthread_attr_destroy(&thread_pool->thread_attr))
         ERROR;
 
+    /* Destroy thread wait condition variable */
+    if(0 != pthread_cond_destroy(&thread_pool->thread_wait_cond))
+        ERROR;
+
     /* Free threads array */
     free(thread_pool->threads);
 
@@ -426,7 +608,8 @@ AXE_thread_pool_worker(void *_thread)
      * thread locked its mutex) */
     if(!OPA_load_int(&thread->thread_pool->closing)) {
         /* Push thread onto free thread queue */
-        OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AXE_thread_t, thread_queue_hdr);
+        if(AXE_thread_pool_release(thread) != AXE_SUCCEED)
+            ERROR_RET(thread);
 
         /* Wait until signaled to run */
         if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
@@ -437,6 +620,10 @@ AXE_thread_pool_worker(void *_thread)
 
     /* Main loop - when thread_op is set to NULL, shut down */
     while(thread->thread_op) {
+        /* Mark thread as running */
+        if(AXE_thread_pool_running(thread->thread_pool) != AXE_SUCCEED)
+            ERROR_RET(thread);
+
         /* Launch client operator */
         if(thread->thread_op(thread->thread_op_data) != AXE_SUCCEED)
             ERROR_RET(thread);
@@ -446,7 +633,8 @@ AXE_thread_pool_worker(void *_thread)
         thread->thread_op_data = NULL;
 
         /* Push thread back onto free thread queue */
-        OPA_Queue_enqueue(&thread->thread_pool->thread_queue, thread, AXE_thread_t, thread_queue_hdr);
+        if(AXE_thread_pool_release(thread) != AXE_SUCCEED)
+            ERROR_RET(thread);
 
         /* Note: The thread must never take any mutexes (except the thread
          * mutex, which it immediately releases in pthread_cond_wait) while on
@@ -454,7 +642,7 @@ AXE_thread_pool_worker(void *_thread)
          * dequeued thread is guaranteed to succeed before the dequeued thread
          * attempts to lock any mutex.  This is to prevent deadlocks. */
 
-        /* Wait until signalled to run again */
+        /* Wait until signaled to run again */
         if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
             ERROR_RET(thread);
     } /* end while */

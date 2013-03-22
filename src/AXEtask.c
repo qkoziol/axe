@@ -296,10 +296,6 @@ AXE_task_worker(void *_task)
 
     assert(task);
 
-    /* Let the scheduler know that this worker is running and will eventually
-     * check the schedule for more tasks */
-    AXE_schedule_worker_running(task->engine->schedule);
-
     /* Main loop */
     do {
         /* Mark task as running, if it has not been canceled, and check if there

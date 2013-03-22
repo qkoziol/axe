@@ -58,7 +58,7 @@ AXE_engine_create(size_t num_threads, AXE_engine_int_t **engine/*out*/)
         ERROR;
 
     /* Create schedule */
-    if(AXE_schedule_create(num_threads, &(*engine)->schedule) != AXE_SUCCEED) {
+    if(AXE_schedule_create(&(*engine)->schedule) != AXE_SUCCEED) {
         free(*engine);
         *engine = NULL;
         ERROR;
@@ -108,9 +108,6 @@ AXE_engine_free(AXE_engine_int_t *engine)
     /* Mark all tasks as canceled */
     if(AXE_schedule_cancel_all(engine->schedule, NULL) != AXE_SUCCEED)
         ERROR;
-
-    /* Mark schedule as closing */
-    AXE_schedule_closing(engine->schedule);
 
     /* Free thread pool (will wait for all threads to finish) */
     if(AXE_thread_pool_free(engine->thread_pool) != AXE_SUCCEED)

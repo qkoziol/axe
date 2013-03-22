@@ -21,5 +21,3 @@ test_all_SOURCES = test_all.c axe_test.h
 
 AM_CPPFLAGS = -I$(top_srcdir)/src
 
-CHECK_CLEANFILES = max_nthreads.txt
-
