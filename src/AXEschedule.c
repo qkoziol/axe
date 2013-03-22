@@ -25,6 +25,7 @@ struct AXE_schedule_t {
     pthread_mutex_t         wait_all_mutex;         /* Mutex for waiting for all tasks to complete */
     AXE_task_int_t          task_list_sentinel;     /* Sentinel for task list (head and tail) */
     pthread_mutex_t         task_list_mutex;        /* Mutex for task list.  Must not be taken while holding a task mutex! */
+    _Bool                   exclude_close;          /* Whether to fail if tasks still exist when closing.  Used for testing. */
 #ifdef AXE_DEBUG_NTASKS
     OPA_int_t               nadds;
     OPA_int_t               nenqueues;
@@ -109,6 +110,9 @@ AXE_schedule_create(AXE_schedule_t **schedule/*out*/)
     if(0 != pthread_mutex_init(&(*schedule)->task_list_mutex, NULL))
         ERROR;
     is_task_list_mutex_init = TRUE;
+
+    /* Initialize exclude_close */
+    (*schedule)->exclude_close = FALSE;
 
 #ifdef AXE_DEBUG_NTASKS
     OPA_store_int(&(*schedule)->nadds, 0);
@@ -740,22 +744,6 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 #ifdef AXE_DEBUG_NTASKS
         OPA_incr_int(&schedule->ncomplete);
 #endif /* AXE_DEBUG_NTASKS */
-
-        /* Lock wait_all mutex */
-        if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
-            ERROR;
-
-        /* Decrement the number of tasks and if this was the last task signal
-         * threads waiting for all tasks to complete */
-        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
-            /* Signal threads waiting on all tasks to complete */
-            if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
-                ERROR;
-        } /* end if */
-
-        /* Unlock wait_all mutex */
-        if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
-            ERROR;
     } /* end if */
     else {
         assert(prev_status = AXE_TASK_CANCELED);
@@ -767,6 +755,22 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
         if(0 != pthread_mutex_unlock(&(*task)->task_mutex))
             ERROR;
     } /* end else */
+
+    /* Lock wait_all mutex */
+    if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
+        ERROR;
+
+    /* Decrement the number of tasks and if this was the last task signal
+     * threads waiting for all tasks to complete */
+    if(OPA_decr_and_test_int(&schedule->num_tasks)) {
+        /* Signal threads waiting on all tasks to complete */
+        if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
+            ERROR;
+    } /* end if */
+
+    /* Unlock wait_all mutex */
+    if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
+        ERROR;
 
     /* Free tasks on the free list */
     while(free_list_head) {
@@ -959,22 +963,6 @@ AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
 #endif /* AXE_DEBUG_LOCK */
         if(0 != pthread_mutex_unlock(&task->task_mutex))
             ERROR;
-
-        /* Lock wait_all mutex */
-        if(0 != pthread_mutex_lock(&schedule->wait_all_mutex))
-            ERROR;
-
-        /* Decrement the number of tasks and if this was the last task signal
-         * threads waiting for all tasks to complete */
-        if(OPA_decr_and_test_int(&schedule->num_tasks)) {
-            /* Signal threads waiting on all tasks to complete */
-            if(0 != pthread_cond_broadcast(&schedule->wait_all_cond))
-                ERROR;
-        } /* end if */
-
-        /* Unlock wait_all mutex */
-        if(0 != pthread_mutex_unlock(&schedule->wait_all_mutex))
-            ERROR;
     } /* end if */
     else {
         /* Unlock task mutex */
@@ -1137,6 +1125,11 @@ AXE_schedule_free(AXE_schedule_t *schedule)
     printf("nadds: %d, nenqs: %d, ndqs: %d, ncmplt: %d, ncanc: %d\n", OPA_load_int(&schedule->nadds), OPA_load_int(&schedule->nenqueues), OPA_load_int(&schedule->ndequeues), OPA_load_int(&schedule->ncomplete), OPA_load_int(&schedule->ncancels));
 #endif /* AXE_DEBUG_NTASKS */
 
+    /* If exclude_close is set and there are still tasks, fail */
+    if(schedule->exclude_close && (schedule->task_list_sentinel.task_list_next
+            != &schedule->task_list_sentinel))
+        ERROR;
+
     /* Free all remaining tasks.  They should all be done or canceled. */
     for(task = schedule->task_list_sentinel.task_list_next;
             task != &schedule->task_list_sentinel;
@@ -1179,6 +1172,50 @@ AXE_schedule_free(AXE_schedule_t *schedule)
 done:
     return ret_value;
 } /* end AXE_schedule_free() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_exclude_close_on
+ *
+ * Purpose:     Tells the specified schedule to fail if it tries to close
+ *              with tasks still open.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              March 22, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+AXE_schedule_exclude_close_on(AXE_schedule_t *schedule)
+{
+    schedule->exclude_close = TRUE;
+
+    return;
+} /* end AXE_schedule_exclude_close_on() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_exclude_close_off
+ *
+ * Purpose:     Tells the specified schedule to free open tasks when the
+ *              schedule is closed.  This is the default behavior.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              March 22, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+AXE_schedule_exclude_close_off(AXE_schedule_t *schedule)
+{
+    schedule->exclude_close = FALSE;
+
+    return;
+} /* end AXE_schedule_exclude_close_off() */
 
 
 /*-------------------------------------------------------------------------

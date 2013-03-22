@@ -8,7 +8,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-#include <AXEprivate.h>
+#include <AXEtest.h>
 
 
 /*

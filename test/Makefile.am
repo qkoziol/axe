@@ -19,5 +19,7 @@ DEPENDENCIES = libaxe.la
 
 test_all_SOURCES = test_all.c axe_test.h
 
+check_max_nthreads_SOURCES = check_max_nthreads.c axe_test.h
+
 AM_CPPFLAGS = -I$(top_srcdir)/src
 

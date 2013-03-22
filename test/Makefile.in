@@ -73,8 +73,8 @@ CONFIG_HEADER = $(top_builddir)/src/config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__EXEEXT_1 = check_max_nthreads$(EXEEXT) test_all$(EXEEXT)
-check_max_nthreads_SOURCES = check_max_nthreads.c
-check_max_nthreads_OBJECTS = check_max_nthreads.$(OBJEXT)
+am_check_max_nthreads_OBJECTS = check_max_nthreads.$(OBJEXT)
+check_max_nthreads_OBJECTS = $(am_check_max_nthreads_OBJECTS)
 check_max_nthreads_LDADD = $(LDADD)
 check_max_nthreads_DEPENDENCIES =
 AM_V_lt = $(am__v_lt_@AM_V@)
@@ -119,8 +119,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = check_max_nthreads.c $(test_all_SOURCES)
-DIST_SOURCES = check_max_nthreads.c $(test_all_SOURCES)
+SOURCES = $(check_max_nthreads_SOURCES) $(test_all_SOURCES)
+DIST_SOURCES = $(check_max_nthreads_SOURCES) $(test_all_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -252,6 +252,7 @@ AM_LDFLAGS = -L../src
 LDADD = -laxe
 DEPENDENCIES = libaxe.la
 test_all_SOURCES = test_all.c axe_test.h
+check_max_nthreads_SOURCES = check_max_nthreads.c axe_test.h
 AM_CPPFLAGS = -I$(top_srcdir)/src
 all: all-am
 
@@ -266,9 +267,9 @@ $(srcdir)/Makefile.in:  $(srcdir)/Makefile.am  $(am__configure_deps)
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu test/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign test/Makefile'; \
 	$(am__cd) $(top_srcdir) && \
-	  $(AUTOMAKE) --gnu test/Makefile
+	  $(AUTOMAKE) --foreign test/Makefile
 .PRECIOUS: Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \

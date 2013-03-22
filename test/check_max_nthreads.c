@@ -146,7 +146,7 @@ main(int argc, char **argv)
         TEST_ERROR;
 
     /* Print message Indicating */
-    printf("Result: %d\n", num_threads);
+    printf("Result: %s%d\n", (num_threads == MAX_THREADS_USABLE) ? "At least " : "", num_threads);
     fflush(stdout);
 
     return 0;

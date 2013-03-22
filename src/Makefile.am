@@ -24,6 +24,8 @@ libaxe_la_SOURCES = \
 	AXEschedule.c \
 	AXEtask.h \
 	AXEtask.c \
+	AXEtest.h \
+	AXEtest.c \
 	AXEthreadpool.h \
 	AXEthreadpool.c
 
