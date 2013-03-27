@@ -34,12 +34,12 @@ typedef struct {
     basic_task_shared_t *shared; /* Shared task op_data */
     int failed;                 /* (Out) whether this task failed */
     int run_order;              /* (Out) order in which this task was run */
-    size_t num_necessary_parents; /* num_necessary_parents parameter provided to task */
-    size_t num_sufficient_parents; /* num_sufficient_parents parameter provided to task */
+    size_t num_necessary_parents; /* (Out) num_necessary_parents parameter provided to task */
+    size_t num_sufficient_parents; /* (Out) num_sufficient_parents parameter provided to task */
     pthread_mutex_t *mutex;     /* Mutex used for synchronization */
     pthread_cond_t *cond;       /* Condition variable for signaling main test thread */
     pthread_mutex_t *cond_mutex; /* Mutex associated with cond */
-    int cond_signal_sent;       /* Whether the condition signal was sent */
+    int cond_signal_sent;       /* (Out) Whether the condition signal was sent */
 } basic_task_t;
 
 
@@ -66,6 +66,10 @@ typedef struct {
 #define FRACTAL_NODEP_NTASKS 1000
 #define PARALLEL_NITER 50
 #define PARALLEL_NUM_THREADS_META 20
+#define CREATE_REMOVE_NITER 10
+#define CREATE_REMOVE_NTASKS 50
+#define CREATE_REMOVE_ALL_NITER 5
+#define CREATE_REMOVE_ALL_NTASKS 10
 #else
 #define SIMPLE_NITER 1000
 #define NECESSARY_NITER 1000
@@ -86,6 +90,10 @@ typedef struct {
 #define FRACTAL_NODEP_NTASKS 10000
 #define PARALLEL_NITER 5000
 #define PARALLEL_NUM_THREADS_META 20
+#define CREATE_REMOVE_NITER 500
+#define CREATE_REMOVE_NTASKS 1000
+#define CREATE_REMOVE_ALL_NITER 200
+#define CREATE_REMOVE_ALL_NTASKS 100
 #endif
 
 
@@ -5083,6 +5091,432 @@ error:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    test_create_remove_helper
+ *
+ * Purpose:     Runs 2 threads simultaneously (within the engine), one of
+ *              which adds new tasks and the other which cancels these
+ *              tasks.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              March 25, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+/* Data shared between all remove helper tasks */
+typedef struct create_remove_shared_t {
+    OPA_ptr_t child_task;       /* Pointer to child task (changes) */
+    OPA_int_t num_cancels;      /* Number of tasks successfully canceled */
+    OPA_int_t num_failed;       /* Number of helper threads failed */
+    OPA_int_t shutdown;         /* Whether to shut down */
+} create_remove_shared_t;
+
+
+/* Secondary helper function.  Constantly tries to remove */
+void
+create_remove_remove_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
+{
+    create_remove_shared_t *helper_data = (create_remove_shared_t *)_task_data;
+    AXE_remove_status_t remove_status;
+    AXE_error_t ret;
+
+    assert(helper_data);
+
+    /* Loop until told to shut dbown */
+    while(!OPA_load_int(&helper_data->shutdown)) {
+        /* Try to cancel the child task */
+        if(AXEbegin_try() != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+        ret = AXEremove(*(AXE_task_t *)OPA_load_ptr(&helper_data->child_task), &remove_status);
+        if(AXEend_try() != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+
+        /* Check if we canceled the task, record it if we did */
+        if((ret == AXE_SUCCEED) && (remove_status == AXE_CANCELED))
+            OPA_incr_int(&helper_data->num_cancels);
+    } /* end while */
+
+    /* Make sure there are no parents */
+    if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
+        OPA_incr_int(&helper_data->num_failed);
+
+    return;
+} /* end create_remove_remove_helper() */
+
+
+/* Main test helper function */
+void
+test_create_remove_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    create_remove_shared_t int_helper_data;
+    basic_task_t *task_data = NULL;
+    basic_task_shared_t shared_task_data;
+    AXE_task_t *task = NULL;
+    AXE_task_t remove_helper_task;
+    int total_ncalls;
+    int last_run_order;
+    AXE_status_t status;
+    AXE_status_t last_status;
+    AXE_error_t ret;
+    int i;
+
+    /* Initialize int_helper_data */
+    OPA_store_int(&int_helper_data.num_cancels, 0);
+    OPA_store_int(&int_helper_data.num_failed, 0);
+    OPA_store_int(&int_helper_data.shutdown, FALSE);
+
+    /* Allocate task_data */
+    if(NULL == (task_data = (basic_task_t *)malloc(CREATE_REMOVE_NTASKS * sizeof(basic_task_t))))
+        TEST_ERROR;
+
+    /* Allocate task */
+    if(NULL == (task = (AXE_task_t *)malloc(CREATE_REMOVE_NTASKS * sizeof(AXE_task_t))))
+        TEST_ERROR;
+
+    /* Initialize shared_task_data */
+    shared_task_data.max_ncalls = CREATE_REMOVE_NTASKS;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Create first task (do so before launching remove helper so child_task is
+     * initialized */
+    task_data[0].shared = &shared_task_data;
+    task_data[0].failed = 0;
+    task_data[0].run_order = -1;
+    task_data[0].mutex = NULL;
+    task_data[0].cond = NULL;
+    task_data[0].cond_mutex = NULL;
+    task_data[0].cond_signal_sent = 0;
+    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker, &task_data[0], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    OPA_store_ptr(&int_helper_data.child_task, &task[0]);
+
+    /* Launch remove helper */
+    if(AXEcreate_task(helper_data->engine, &remove_helper_task, 0, NULL, 0, NULL, create_remove_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Launch CREATE_REMOVE_NTASKS tasks, keeping int_helper_data.child_task up
+     * to date */
+    for(i = 1; i < CREATE_REMOVE_NTASKS; i++) {
+        /* Initialize task data */
+        task_data[i].shared = &shared_task_data;
+        task_data[i].failed = 0;
+        task_data[i].run_order = -1;
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+        task_data[i].cond_signal_sent = 0;
+
+        /* Try to launch task with parent.  If it fails (due to parent being
+         * canceled), launch without parent.  Use cond_signal_sent field to keep
+         * track of which tasks have no parents (1 == no parent). */
+        if(AXEbegin_try() != AXE_SUCCEED)
+            TEST_ERROR;
+        ret = AXEcreate_task(helper_data->engine, &task[i], 1, &task[i - 1], 0, NULL, basic_task_worker, &task_data[i], NULL);
+        if(AXEend_try() != AXE_SUCCEED)
+            TEST_ERROR;
+        if(ret != AXE_SUCCEED) {
+            task_data[i].cond_signal_sent = 1;
+            if(AXEcreate_task(helper_data->engine, &task[i], 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL))
+                TEST_ERROR;
+        } /* end if */
+
+        /* Update int_helper_data.child_task */
+        OPA_store_ptr(&int_helper_data.child_task, &task[i]);
+    } /* end for */
+
+    /* Send signal to shut down remove helper */
+    OPA_store_int(&int_helper_data.shutdown, TRUE);
+
+    /* Wait for tasks and remove helper to complete.  Note task may be canceled.
+     */
+    if(AXEwait(remove_helper_task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    for(i = 0; i < CREATE_REMOVE_NTASKS; i++)
+        (void)AXEwait(task[i]);
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /*
+     * Verify results
+     */
+    /* Make sure remove helper did not fail */
+    if(OPA_load_int(&int_helper_data.num_failed) > 0)
+        TEST_ERROR;
+
+    /* Verify all tasks were either canceled or executed */
+    if(OPA_load_int(&int_helper_data.num_cancels)
+            + OPA_load_int(&shared_task_data.ncalls) != CREATE_REMOVE_NTASKS)
+        TEST_ERROR;
+
+    /* Loop over all tasks, making sure completed tasks are marked completed,
+     * canceled tasks are marked canceled, tasks with parents were executed
+     * after their parents, and tasks without parents follow canceled tasks */
+    total_ncalls = 0;
+    last_run_order = -1;
+    last_status = AXE_TASK_DONE;
+    for(i = 0; i < CREATE_REMOVE_NTASKS; i++) {
+        if(task_data[i].failed != 0)
+            TEST_ERROR;
+        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(task_data[i].run_order == -1) {
+            if(status != AXE_TASK_CANCELED)
+                TEST_ERROR;
+        } /* end if */
+        else {
+            if(status != AXE_TASK_DONE)
+                TEST_ERROR;
+            if(task_data[i].cond_signal_sent == 1) {
+                if(last_status != AXE_TASK_CANCELED)
+                    TEST_ERROR;
+            } /* end if */
+            else {
+                if(last_status != AXE_TASK_DONE)
+                    TEST_ERROR;
+                if(task_data[i].run_order <= last_run_order)
+                    TEST_ERROR;
+            } /* end else */
+            total_ncalls++;
+        } /* end else */
+        last_run_order = task_data[i].run_order;
+        last_status = status;
+    } /* end for */
+    if(total_ncalls != OPA_load_int(&shared_task_data.ncalls))
+        TEST_ERROR;
+
+    /*
+     * Close
+     */
+    for(i = 0; i < CREATE_REMOVE_NTASKS; i++)
+        if(AXEfinish(task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+    if(AXEfinish(remove_helper_task) != AXE_SUCCEED)
+        TEST_ERROR;
+    free(task_data);
+    free(task);
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_create_remove_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    test_create_remove_all_helper
+ *
+ * Purpose:     Runs 2 threads simultaneously (within the engine), one of
+ *              which adds new tasks and the other which repeatedly calls
+ *              AXE_remove_all().
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              March 26, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+/* Data shared between all remove helper tasks */
+typedef struct create_remove_all_shared_t {
+    AXE_engine_t engine;        /* Engine containing tasks to be removed */
+    OPA_int_t num_failed;       /* Number of helper threads failed */
+    OPA_int_t shutdown;         /* Whether to shut down */
+} create_remove_all_shared_t;
+
+
+/* Secondary helper function.  Constantly tries to remove */
+void
+create_remove_all_remove_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
+{
+    create_remove_all_shared_t *helper_data = (create_remove_all_shared_t *)_task_data;
+
+    assert(helper_data);
+
+    /* Loop until told to shut dbown */
+    while(!OPA_load_int(&helper_data->shutdown))
+        /* Cancel all tasks */
+        if(AXEremove_all(helper_data->engine, NULL) != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+
+    /* Make sure there are no parents */
+    if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
+        OPA_incr_int(&helper_data->num_failed);
+
+    return;
+} /* end create_remove_all_remove_helper() */
+
+
+/* Main test helper function */
+void
+test_create_remove_all_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    AXE_engine_t engine;
+    _Bool engine_init = FALSE;;
+    create_remove_all_shared_t int_helper_data;
+    basic_task_t *task_data = NULL;
+    basic_task_shared_t shared_task_data;
+    AXE_task_t parent_task;
+    AXE_task_t task;
+    int total_ncalls;
+    int last_run_order;
+    AXE_error_t ret;
+    int i;
+
+    /* Reserve threads for engine */
+    MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
+
+    /* Create AXE engine with 2 threads */
+    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Initialize int_helper_data */
+    int_helper_data.engine = engine;
+    OPA_store_int(&int_helper_data.num_failed, 0);
+    OPA_store_int(&int_helper_data.shutdown, FALSE);
+
+    /* Allocate task_data */
+    if(NULL == (task_data = (basic_task_t *)malloc(CREATE_REMOVE_ALL_NTASKS * sizeof(basic_task_t))))
+        TEST_ERROR;
+
+    /* Initialize shared_task_data */
+    shared_task_data.max_ncalls = CREATE_REMOVE_ALL_NTASKS;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Launch remove helper */
+    if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, create_remove_all_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Launch CREATE_REMOVE_ALL_NTASKS tasks */
+    for(i = 0; i < CREATE_REMOVE_ALL_NTASKS; i++) {
+        /* Initialize task data */
+        task_data[i].shared = &shared_task_data;
+        task_data[i].failed = 0;
+        task_data[i].run_order = -1;
+        task_data[i].mutex = NULL;
+        task_data[i].cond = NULL;
+        task_data[i].cond_mutex = NULL;
+        task_data[i].cond_signal_sent = 0;
+
+        /* Try to launch task with parent.  If it fails (due to parent being
+         * canceled), launch without parent.  Do not use parent for first task.
+         * Use cond_signal_sent field to keep track of which tasks have no
+         * parents (1 == no parent). */
+        if(i == 0)
+            /* This is the first tast: mark ret as AXE_FAIL so we create a task
+             * without a parent below */
+            ret = AXE_FAIL;
+        else {
+            /* Create task with parent.  May fail. */
+            if(AXEbegin_try() != AXE_SUCCEED)
+                TEST_ERROR;
+            ret = AXEcreate_task(engine, &task, 1, &parent_task, 0, NULL, basic_task_worker, &task_data[i], NULL);
+            if(AXEend_try() != AXE_SUCCEED)
+                TEST_ERROR;
+
+            /* Close parent task */
+            if(AXEfinish(parent_task) != AXE_SUCCEED)
+                TEST_ERROR;
+        } /* end else */
+        if(ret != AXE_SUCCEED) {
+            /* Mark task as having no parent */
+            task_data[i].cond_signal_sent = 1;
+
+            /* Create task without parent */
+            if(AXEcreate_task(engine, &task, 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL))
+                TEST_ERROR;
+        } /* end if */
+
+        /* Update parent_task */
+        parent_task = task;
+    } /* end for */
+
+    /* Send signal to shut down remove helper */
+    OPA_store_int(&int_helper_data.shutdown, TRUE);
+
+    /* Close task */
+    if(AXEfinish(task) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Wait for tasks and remove helper to complete.  Do this by terminating the
+     * engine with wait_all set to TRUE. */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Release threads used by engine */
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
+    engine_init = FALSE;
+
+    /*
+     * Verify results
+     */
+    /* Make sure remove helper did not fail */
+    if(OPA_load_int(&int_helper_data.num_failed) > 0)
+        TEST_ERROR;
+
+    /* Loop over all tasks, making sure none failed, tasks with parents were
+     * executed after their parents, and tasks without parents follow canceled
+     * tasks */
+    total_ncalls = 0;
+    last_run_order = -1;
+    for(i = 0; i < CREATE_REMOVE_ALL_NTASKS; i++) {
+        if(task_data[i].failed != 0)
+            TEST_ERROR;
+        if(task_data[i].run_order != -1) {
+            if(task_data[i].cond_signal_sent == 1) {
+                if(last_run_order != -1)
+                    TEST_ERROR;
+            } /* end if */
+            else
+                if(task_data[i].run_order <= last_run_order)
+                    TEST_ERROR;
+            total_ncalls++;
+        } /* end else */
+        last_run_order = task_data[i].run_order;
+    } /* end for */
+    if(total_ncalls != OPA_load_int(&shared_task_data.ncalls))
+        TEST_ERROR;
+
+    /*
+     * Close
+     */
+    free(task_data);
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
+
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_create_remove_all_helper() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    test_serial
  *
  * Purpose:     Runs the test supplied in the helper argument.  Uses
@@ -5204,6 +5638,8 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     size_t terminate_engine_i = 0;
     size_t fractal_i = 0;
     size_t fractal_nodep_i = 0;
+    size_t create_remove_i = 0;
+    size_t create_remove_all_i = 0;
     size_t num_threads_i = 0;
     size_t i;
 
@@ -5329,6 +5765,21 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
             fractal_nodep_i++;
         } /* end if */
 
+        /* Launch create_remove test */
+        if(i >= create_remove_i * PARALLEL_NITER / CREATE_REMOVE_NITER) {
+            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_create_remove_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            create_remove_i++;
+        } /* end if */
+
+        /* Launch create_remove_all test, if num_threads_int > 1 */
+        if(num_threads_int > 1)
+            if(i >= create_remove_all_i * PARALLEL_NITER / CREATE_REMOVE_ALL_NITER) {
+                if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_create_remove_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+                    TEST_ERROR;
+                create_remove_all_i++;
+            } /* end if */
+
         /* Launch num_threads test */
         if(i >= num_threads_i * PARALLEL_NITER / NUM_THREADS_NITER) {
             if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_num_threads_helper, &helper_data, NULL) != AXE_SUCCEED)
@@ -5361,8 +5812,10 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     assert(terminate_engine_i == (TERMINATE_ENGINE_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(fractal_i == (FRACTAL_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(fractal_nodep_i == (FRACTAL_NODEP_NITER * niter - 1) / PARALLEL_NITER + 1);
+    assert(create_remove_i == (CREATE_REMOVE_NITER * niter - 1) / PARALLEL_NITER + 1);
+    assert((num_threads_int == 1) || (create_remove_all_i == (CREATE_REMOVE_ALL_NITER * niter - 1) / PARALLEL_NITER + 1));
     assert(num_threads_i == (NUM_THREADS_NITER * niter - 1) / PARALLEL_NITER + 1);
-    if(OPA_load_int(&helper_data.ncomplete) != simple_i + necessary_i + sufficient_i + barrier_i + get_op_data_i + finish_all_i + free_op_data_i + remove_i + remove_all_i + terminate_engine_i + fractal_i + fractal_nodep_i + num_threads_i)
+    if(OPA_load_int(&helper_data.ncomplete) != simple_i + necessary_i + sufficient_i + barrier_i + get_op_data_i + finish_all_i + free_op_data_i + remove_i + remove_all_i + terminate_engine_i + fractal_i + fractal_nodep_i + create_remove_i + create_remove_all_i + num_threads_i)
         TEST_ERROR;
 
     /* Destroy parallel mutex */
@@ -5440,6 +5893,9 @@ main(int argc, char **argv)
             nerrors += test_serial(test_terminate_engine_helper, num_threads_g[i], TERMINATE_ENGINE_NITER / iter_reduction_g[i], FALSE, "AXEterminate_engine()");
             nerrors += test_serial(test_fractal_helper, num_threads_g[i], FRACTAL_NITER / iter_reduction_g[i], TRUE, "fractal task creation");
             nerrors += test_serial(test_fractal_nodep_helper, num_threads_g[i], FRACTAL_NODEP_NITER / iter_reduction_g[i], TRUE, "fractal task creation without dependencies");
+            nerrors += test_serial(test_create_remove_helper, num_threads_g[i], CREATE_REMOVE_NITER / iter_reduction_g[i], TRUE, "simultaneously creating and removing tasks");
+            if(num_threads_g[i] > 1)
+                nerrors += test_serial(test_create_remove_all_helper, num_threads_g[i], CREATE_REMOVE_ALL_NITER / iter_reduction_g[i], FALSE, "simultaneously creating and removing all tasks");
             MAX_NTHREADS_CHECK_STATIC_IF(PARALLEL_NUM_THREADS_META + num_threads_g[i] + (num_threads_g[i] > 2 ? num_threads_g[i] : 2))
                 nerrors += test_parallel(PARALLEL_NUM_THREADS_META, num_threads_g[i], PARALLEL_NITER / iter_reduction_g[i]);
         } /* end MAX_NTHREADS_CHECK_STATIC_IF */

@@ -16,5 +16,8 @@ threads must finish with the engine before all tasks complete.
 This library reserves no threads for internal use - all scheduling is done by
 the application thread during API calls and by task worker threads.
 
+Compiling this library requires OpenPA, available at:
+http://trac.mcs.anl.gov/projects/openpa
+
 Primary contact for AXE is Neil Fortner <nfortne2@hdfgroup.org>
 
