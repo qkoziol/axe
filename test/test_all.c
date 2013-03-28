@@ -64,12 +64,14 @@ typedef struct {
 #define FRACTAL_NODEP_NITER 10
 #define FRACTAL_NODEP_NCHILDREN 2
 #define FRACTAL_NODEP_NTASKS 1000
-#define PARALLEL_NITER 50
+#define PARALLEL_NITER 5000
 #define PARALLEL_NUM_THREADS_META 20
 #define CREATE_REMOVE_NITER 10
 #define CREATE_REMOVE_NTASKS 50
-#define CREATE_REMOVE_ALL_NITER 5
-#define CREATE_REMOVE_ALL_NTASKS 10
+#define CREATE_REMOVE_ALL_NITER 10
+#define CREATE_REMOVE_ALL_NTASKS 20
+#define PILEUP_NITER 6
+#define PILEUP_NTASKS 100
 #else
 #define SIMPLE_NITER 1000
 #define NECESSARY_NITER 1000
@@ -93,7 +95,9 @@ typedef struct {
 #define CREATE_REMOVE_NITER 500
 #define CREATE_REMOVE_NTASKS 1000
 #define CREATE_REMOVE_ALL_NITER 200
-#define CREATE_REMOVE_ALL_NTASKS 100
+#define CREATE_REMOVE_ALL_NTASKS 200
+#define PILEUP_NITER 100
+#define PILEUP_NTASKS 10000
 #endif
 
 
@@ -5222,7 +5226,7 @@ test_create_remove_helper(size_t num_necessary_parents,
             TEST_ERROR;
         if(ret != AXE_SUCCEED) {
             task_data[i].cond_signal_sent = 1;
-            if(AXEcreate_task(helper_data->engine, &task[i], 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL))
+            if(AXEcreate_task(helper_data->engine, &task[i], 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
                 TEST_ERROR;
         } /* end if */
 
@@ -5331,8 +5335,11 @@ error:
 /* Data shared between all remove helper tasks */
 typedef struct create_remove_all_shared_t {
     AXE_engine_t engine;        /* Engine containing tasks to be removed */
+    int num_creates;            /* Number of tasks created */
+    pthread_cond_t create_cond; /* Condition variable signaled whenever a task is created */
+    pthread_mutex_t create_cond_mutex; /* Mutex associated with create_cond */
     OPA_int_t num_failed;       /* Number of helper threads failed */
-    OPA_int_t shutdown;         /* Whether to shut down */
+    _Bool shutdown;             /* Whether to shut down */
 } create_remove_all_shared_t;
 
 
@@ -5343,14 +5350,28 @@ create_remove_all_remove_helper(size_t num_necessary_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
     create_remove_all_shared_t *helper_data = (create_remove_all_shared_t *)_task_data;
+    int num_removes = 0;
 
     assert(helper_data);
 
     /* Loop until told to shut dbown */
-    while(!OPA_load_int(&helper_data->shutdown))
+    while(!helper_data->shutdown) {
         /* Cancel all tasks */
         if(AXEremove_all(helper_data->engine, NULL) != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
+        num_removes++;
+
+        /* Wait on condition if we have done too many removes relative to the
+         * number of tasks.  Stops this test from running unreasonably long. */
+        if(0 != pthread_mutex_lock(&helper_data->create_cond_mutex))
+            OPA_incr_int(&helper_data->num_failed);
+        while((num_removes > (2 * helper_data->num_creates))
+                && !helper_data->shutdown)
+            if(0 != pthread_cond_wait(&helper_data->create_cond, &helper_data->create_cond_mutex))
+                OPA_incr_int(&helper_data->num_failed);
+        if(0 != pthread_mutex_unlock(&helper_data->create_cond_mutex))
+            OPA_incr_int(&helper_data->num_failed);
+    } /* end while */
 
     /* Make sure there are no parents */
     if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
@@ -5382,15 +5403,20 @@ test_create_remove_all_helper(size_t num_necessary_parents,
     /* Reserve threads for engine */
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
 
-    /* Create AXE engine with 2 threads */
+    /* Create AXE engine */
     if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = TRUE;
 
     /* Initialize int_helper_data */
     int_helper_data.engine = engine;
+    int_helper_data.num_creates = 0;
+    if(0 != pthread_cond_init(&int_helper_data.create_cond, NULL))
+        TEST_ERROR;
+    if(0 != pthread_mutex_init(&int_helper_data.create_cond_mutex, NULL))
+        TEST_ERROR;
     OPA_store_int(&int_helper_data.num_failed, 0);
-    OPA_store_int(&int_helper_data.shutdown, FALSE);
+    int_helper_data.shutdown = FALSE;
 
     /* Allocate task_data */
     if(NULL == (task_data = (basic_task_t *)malloc(CREATE_REMOVE_ALL_NTASKS * sizeof(basic_task_t))))
@@ -5440,16 +5466,32 @@ test_create_remove_all_helper(size_t num_necessary_parents,
             task_data[i].cond_signal_sent = 1;
 
             /* Create task without parent */
-            if(AXEcreate_task(engine, &task, 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL))
+            if(AXEcreate_task(engine, &task, 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
                 TEST_ERROR;
         } /* end if */
+
+        /* Send signal that task was created */
+        if(0 != pthread_mutex_lock(&int_helper_data.create_cond_mutex))
+            TEST_ERROR;
+        int_helper_data.num_creates++;
+        if(0 != pthread_cond_signal(&int_helper_data.create_cond))
+            TEST_ERROR;
+        if(0 != pthread_mutex_unlock(&int_helper_data.create_cond_mutex))
+            TEST_ERROR;
 
         /* Update parent_task */
         parent_task = task;
     } /* end for */
 
     /* Send signal to shut down remove helper */
-    OPA_store_int(&int_helper_data.shutdown, TRUE);
+    if(0 != pthread_mutex_lock(&int_helper_data.create_cond_mutex))
+        TEST_ERROR;
+    int_helper_data.shutdown = TRUE;
+    if(0 != pthread_cond_signal(&int_helper_data.create_cond))
+        TEST_ERROR;
+    if(0 != pthread_mutex_unlock(&int_helper_data.create_cond_mutex))
+        TEST_ERROR;
+
 
     /* Close task */
     if(AXEfinish(task) != AXE_SUCCEED)
@@ -5499,6 +5541,10 @@ test_create_remove_all_helper(size_t num_necessary_parents,
      * Close
      */
     free(task_data);
+    if(0 != pthread_cond_destroy(&int_helper_data.create_cond))
+        TEST_ERROR;
+    if(0 != pthread_mutex_destroy(&int_helper_data.create_cond_mutex))
+        TEST_ERROR;
 
     OPA_incr_int(&helper_data->ncomplete);
 
@@ -5514,6 +5560,289 @@ error:
 
     return;
 } /* end test_create_remove_all_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    test_pileup_helper
+ *
+ * Purpose:     Repeatedly launches tasks which call AXEcreate_task(),
+ *              AXEcreate_barrier_task(), AXEremove(), or AXEremove_all(),
+ *              then return.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              March 26, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+/* Data shared between all remove helper tasks */
+typedef struct pileup_shared_t {
+    AXE_engine_t engine;        /* Engine containing tasks to be removed */
+    basic_task_t *task_data;    /* Task data array for task to create */
+    OPA_int_t task_data_i;      /* Index into task_data for next task */
+    OPA_ptr_t rem_task;         /* Pointer to task to remove */
+    OPA_int_t num_failed;       /* Number of helper threads failed */
+} pileup_shared_t;
+
+
+/* Secondary helper function.  Creates a task and returns. */
+void
+pileup_create_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
+{
+    pileup_shared_t *helper_data = (pileup_shared_t *)_task_data;
+    AXE_task_t *task = NULL;
+
+    assert(helper_data);
+
+    /* Allocate space for task */
+    if(NULL == (task = (AXE_task_t *)malloc(sizeof(AXE_task_t))))
+        TEST_ERROR;
+
+    /* Create task */
+    if(AXEcreate_task(helper_data->engine, task, 0, NULL, 0, NULL, basic_task_worker, &helper_data->task_data[OPA_fetch_and_incr_int(&helper_data->task_data_i)], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Add task to shared struct, finish and free previous task in shared struct
+     */
+    task = OPA_swap_ptr(&helper_data->rem_task, task);
+    if(task) {
+        if(AXEfinish(*task) != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+        free(task);
+    } /* end if */
+
+    /* Make sure there are no parents */
+    if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
+        OPA_incr_int(&helper_data->num_failed);
+
+    return;
+
+error:
+    OPA_incr_int(&helper_data->num_failed);
+    return;
+} /* end pileup_create_helper() */
+
+
+/* Secondary helper function.  Creates a barrier task and returns. */
+void
+pileup_create_barrier_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
+{
+    pileup_shared_t *helper_data = (pileup_shared_t *)_task_data;
+    AXE_task_t *task = NULL;
+
+    assert(helper_data);
+
+    /* Allocate space for task */
+    if(NULL == (task = (AXE_task_t *)malloc(sizeof(AXE_task_t))))
+        TEST_ERROR;
+
+    /* Create task */
+    if(AXEcreate_barrier_task(helper_data->engine, task, basic_task_worker, &helper_data->task_data[OPA_fetch_and_incr_int(&helper_data->task_data_i)], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Add task to shared struct, finish and free previous task in shared struct
+     */
+    task = OPA_swap_ptr(&helper_data->rem_task, task);
+    if(task) {
+        if(AXEfinish(*task) != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+        free(task);
+    } /* end if */
+
+    /* Make sure there are no parents */
+    if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
+        OPA_incr_int(&helper_data->num_failed);
+
+    return;
+
+error:
+    OPA_incr_int(&helper_data->num_failed);
+    return;
+} /* end pileup_create_barrier_helper() */
+
+
+/* Secondary helper function.  Removes a task and returns. */
+void
+pileup_remove_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
+{
+    pileup_shared_t *helper_data = (pileup_shared_t *)_task_data;
+    AXE_task_t *rem_task = NULL;
+
+    assert(helper_data);
+
+    /* Load task to remove, swapping shared pointer with NULL so the task
+     * doesn't get freed out from under us */
+    rem_task = (AXE_task_t *)OPA_swap_ptr(&helper_data->rem_task, NULL);
+
+    if(rem_task) {
+        /* Cancel task - note this can fail if the task has children (i.e.
+         * barrier tasks) */
+        if(AXEbegin_try() != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+        (void)AXEremove(*rem_task, NULL);
+        if(AXEend_try() != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+
+        /* Finish and free rem_task */
+        if(AXEfinish(*rem_task) != AXE_SUCCEED)
+            OPA_incr_int(&helper_data->num_failed);
+        free(rem_task);
+    } /* end if */
+
+    /* Make sure there are no parents */
+    if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
+        OPA_incr_int(&helper_data->num_failed);
+
+    return;
+} /* end pileup_remove_helper() */
+
+
+/* Secondary helper function.  Removes all tasks and returns. */
+void
+pileup_remove_all_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
+{
+    pileup_shared_t *helper_data = (pileup_shared_t *)_task_data;
+
+    assert(helper_data);
+
+    /* Cancel all tasks */
+    if(AXEremove_all(helper_data->engine, NULL) != AXE_SUCCEED)
+        OPA_incr_int(&helper_data->num_failed);
+
+    /* Make sure there are no parents */
+    if((num_necessary_parents != 0) || (num_sufficient_parents != 0))
+        OPA_incr_int(&helper_data->num_failed);
+
+    return;
+} /* end pileup_remove_all_helper() */
+
+
+/* Main test helper function */
+void
+test_pileup_helper(size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    AXE_engine_t engine;
+    _Bool engine_init = FALSE;;
+    pileup_shared_t int_helper_data;
+    basic_task_shared_t shared_task_data;
+    int total_ncalls;
+    int i;
+
+    /* Reserve threads for engine */
+    MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
+
+    /* Create AXE engine */
+    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Initialize int_helper_data */
+    int_helper_data.engine = engine;
+    if(NULL == (int_helper_data.task_data = (basic_task_t *)malloc(PILEUP_NTASKS * sizeof(basic_task_t))))
+        TEST_ERROR;
+    OPA_store_int(&int_helper_data.task_data_i, 0);
+    OPA_store_ptr(&int_helper_data.rem_task, NULL);
+    OPA_store_int(&int_helper_data.num_failed, 0);
+
+    /* Initialize shared_task_data */
+    shared_task_data.max_ncalls = PILEUP_NTASKS;
+    OPA_store_int(&shared_task_data.ncalls, 0);
+
+    /* Initialize task_data */
+    for(i = 0; i < PILEUP_NTASKS; i++) {
+        int_helper_data.task_data[i].shared = &shared_task_data;
+        int_helper_data.task_data[i].failed = 0;
+        int_helper_data.task_data[i].run_order = -1;
+        int_helper_data.task_data[i].mutex = NULL;
+        int_helper_data.task_data[i].cond = NULL;
+        int_helper_data.task_data[i].cond_mutex = NULL;
+    } /* end for */
+
+    /* Launch CREATE_REMOVE_ALL_NTASKS tasks */
+    for(i = 0; i < (PILEUP_NTASKS / 2); i++) {
+        /* Launch create helper */
+        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_create_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+
+        /* Launch create barrier helper */
+        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_create_barrier_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+
+        /* Launch remove helper */
+        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+
+        /* Launch remove all helper */
+        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_remove_all_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+    } /* end for */
+
+    /* Wait for tasks and remove helper to complete.  Do this by terminating the
+     * engine with wait_all set to TRUE.  Note that we cannot use exclude_close,
+     * because the last rem_task is left open.  We cannot close it because there
+     * is no way to wait for all the tasks to complete (a barrier task could
+     * miss tasks that are created by pileup_create_helper() or
+     * pileup_create_barrier_helper()). */
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Release threads used by engine */
+    MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
+    engine_init = FALSE;
+
+    /*
+     * Verify results
+     */
+    /* Make sure no helpers failed */
+    if(OPA_load_int(&int_helper_data.num_failed) > 0)
+        TEST_ERROR;
+
+    /* Loop over all tasks, making sure none failed */
+    total_ncalls = 0;
+    for(i = 0; i < PILEUP_NTASKS; i++) {
+        if(int_helper_data.task_data[i].failed != 0)
+            TEST_ERROR;
+        if(int_helper_data.task_data[i].run_order != -1)
+            total_ncalls++;
+    } /* end for */
+    if(total_ncalls != OPA_load_int(&shared_task_data.ncalls))
+        TEST_ERROR;
+
+    /*
+     * Close
+     */
+    /* Free rem_task */
+    if(OPA_load_ptr(&int_helper_data.rem_task))
+        free(OPA_load_ptr(&int_helper_data.rem_task));
+
+    free(int_helper_data.task_data);
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
+
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_pileup_helper() */
 
 
 /*-------------------------------------------------------------------------
@@ -5640,6 +5969,7 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     size_t fractal_nodep_i = 0;
     size_t create_remove_i = 0;
     size_t create_remove_all_i = 0;
+    size_t pileup_i = 0;
     size_t num_threads_i = 0;
     size_t i;
 
@@ -5772,13 +6102,19 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
             create_remove_i++;
         } /* end if */
 
-        /* Launch create_remove_all test, if num_threads_int > 1 */
-        if(num_threads_int > 1)
-            if(i >= create_remove_all_i * PARALLEL_NITER / CREATE_REMOVE_ALL_NITER) {
-                if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_create_remove_all_helper, &helper_data, NULL) != AXE_SUCCEED)
-                    TEST_ERROR;
-                create_remove_all_i++;
-            } /* end if */
+        /* Launch create_remove_all test */
+        if(i >= create_remove_all_i * PARALLEL_NITER / CREATE_REMOVE_ALL_NITER) {
+            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_create_remove_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            create_remove_all_i++;
+        } /* end if */
+
+        /* Launch pileup test */
+        if(i >= pileup_i * PARALLEL_NITER / PILEUP_NITER) {
+            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_pileup_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            pileup_i++;
+        } /* end if */
 
         /* Launch num_threads test */
         if(i >= num_threads_i * PARALLEL_NITER / NUM_THREADS_NITER) {
@@ -5813,9 +6149,10 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     assert(fractal_i == (FRACTAL_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(fractal_nodep_i == (FRACTAL_NODEP_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(create_remove_i == (CREATE_REMOVE_NITER * niter - 1) / PARALLEL_NITER + 1);
-    assert((num_threads_int == 1) || (create_remove_all_i == (CREATE_REMOVE_ALL_NITER * niter - 1) / PARALLEL_NITER + 1));
+    assert(create_remove_all_i == (CREATE_REMOVE_ALL_NITER * niter - 1) / PARALLEL_NITER + 1);
+    assert(pileup_i == (PILEUP_NITER * niter - 1) / PARALLEL_NITER + 1);
     assert(num_threads_i == (NUM_THREADS_NITER * niter - 1) / PARALLEL_NITER + 1);
-    if(OPA_load_int(&helper_data.ncomplete) != simple_i + necessary_i + sufficient_i + barrier_i + get_op_data_i + finish_all_i + free_op_data_i + remove_i + remove_all_i + terminate_engine_i + fractal_i + fractal_nodep_i + create_remove_i + create_remove_all_i + num_threads_i)
+    if(OPA_load_int(&helper_data.ncomplete) != simple_i + necessary_i + sufficient_i + barrier_i + get_op_data_i + finish_all_i + free_op_data_i + remove_i + remove_all_i + terminate_engine_i + fractal_i + fractal_nodep_i + create_remove_i + create_remove_all_i + pileup_i + num_threads_i)
         TEST_ERROR;
 
     /* Destroy parallel mutex */
@@ -5894,8 +6231,8 @@ main(int argc, char **argv)
             nerrors += test_serial(test_fractal_helper, num_threads_g[i], FRACTAL_NITER / iter_reduction_g[i], TRUE, "fractal task creation");
             nerrors += test_serial(test_fractal_nodep_helper, num_threads_g[i], FRACTAL_NODEP_NITER / iter_reduction_g[i], TRUE, "fractal task creation without dependencies");
             nerrors += test_serial(test_create_remove_helper, num_threads_g[i], CREATE_REMOVE_NITER / iter_reduction_g[i], TRUE, "simultaneously creating and removing tasks");
-            if(num_threads_g[i] > 1)
-                nerrors += test_serial(test_create_remove_all_helper, num_threads_g[i], CREATE_REMOVE_ALL_NITER / iter_reduction_g[i], FALSE, "simultaneously creating and removing all tasks");
+            nerrors += test_serial(test_create_remove_all_helper, num_threads_g[i], CREATE_REMOVE_ALL_NITER / iter_reduction_g[i], FALSE, "simultaneously creating and removing all tasks");
+            nerrors += test_serial(test_pileup_helper, num_threads_g[i], PILEUP_NITER / iter_reduction_g[i], FALSE, "simultaneously creating and removing tasks with many threads");
             MAX_NTHREADS_CHECK_STATIC_IF(PARALLEL_NUM_THREADS_META + num_threads_g[i] + (num_threads_g[i] > 2 ? num_threads_g[i] : 2))
                 nerrors += test_parallel(PARALLEL_NUM_THREADS_META, num_threads_g[i], PARALLEL_NITER / iter_reduction_g[i]);
         } /* end MAX_NTHREADS_CHECK_STATIC_IF */

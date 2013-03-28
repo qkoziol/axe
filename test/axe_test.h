@@ -15,7 +15,7 @@
  * Macros
  */
 /* Uncomment this line to make the tests run much faster, at the expense of
- * increasing the likelyhood of missing an intermittent */
+ * increasing the likelyhood of missing an intermittent failure */
 //#define TEST_EXPRESS
 
 /* Macros for printing standard messages and issuing errors */
