@@ -468,7 +468,7 @@ done:
  *              execution.  If the task depends on other tasks in the
  *              engine, then those parent tasks will also have completed
  *              when this function returns.  If the task had completed
- *              before this function is called this funciton will
+ *              before this function is called this function will
  *              immediately return AXE_SUCCEED.  If the task is canceled
  *              while waiting or was canceled before this function is
  *              called this function will return failure.

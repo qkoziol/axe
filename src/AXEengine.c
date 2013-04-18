@@ -133,7 +133,7 @@ done:
  *
  * Purpose:     Performs any one-time initialization on the library.
  *              Right now only calls OPA_Shm_asymm_init(), which is not
- *              necessary until and engine is created, so this function is
+ *              necessary until an engine is created, so this function is
  *              only launched by AXE_engine_create().
  *
  * Return:      Success: AXE_SUCCEED
