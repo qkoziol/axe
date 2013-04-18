@@ -124,7 +124,7 @@ AXE_schedule_create(AXE_schedule_t **schedule/*out*/)
 
 done:
     if(ret_value == AXE_FAIL)
-        if(schedule) {
+        if(*schedule) {
             if(is_queue_mutex_init)
                 (void)pthread_mutex_destroy(&(*schedule)->scheduled_queue_mutex);
             if(is_wait_all_cond_init)

@@ -2881,7 +2881,7 @@ error:
 } /* end free_op_data_decr_ref() */
 
 
-/* "free_op_data" callback for free_op_data test.  Darks that it has been called
+/* "free_op_data" callback for free_op_data test.  Marks that it has been called
  * for the specified op_data, sends a signal, and calls free_op_data_decr_ref().
  */
 void
@@ -5389,7 +5389,7 @@ test_create_remove_all_helper(size_t num_necessary_parents,
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
-    _Bool engine_init = FALSE;;
+    _Bool engine_init = FALSE;
     create_remove_all_shared_t int_helper_data;
     basic_task_t *task_data = NULL;
     basic_task_shared_t shared_task_data;
@@ -5907,7 +5907,7 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
 
         /* Terminate engine */
         if(create_engine) {
-            AXE_test_exclude_close_off(helper_data.engine);
+            AXE_test_exclude_close_on(helper_data.engine);
             if(AXEterminate_engine(helper_data.engine, TRUE) != AXE_SUCCEED)
                 TEST_ERROR;
             helper_data.engine = NULL;
