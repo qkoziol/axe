@@ -25,16 +25,17 @@
  */
 /* Task structure.  Includes fields used by the scheduler, so it must be present
  * in a header visible to the scheduler. */
-struct AXE_task_int_t {
+typedef struct AXE_task_int_t {
     /* Fields used for the callback */
     AXE_task_op_t           op;                     /* Client task callback function */
     size_t                  num_necessary_parents;  /* Number of necessary parent tasks */
-    AXE_task_int_t          **necessary_parents;    /* Array of necessary parent tasks */
+    AXE_task_t              *necessary_parents;     /* Array of necessary parents */
     size_t                  num_sufficient_parents; /* Number of sufficient parent tasks */
-    AXE_task_int_t          **sufficient_parents;   /* Array of sufficient parent tasks */
+    AXE_task_t              *sufficient_parents;    /* Array of sufficient parents */
     void                    *op_data;               /* Client task callback data pointer */
 
     /* Internal fields */
+    AXE_id_t                id;                     /* Task id */
     OPA_Queue_element_hdr_t scheduled_queue_hdr;    /* Header for insertion into the schedule's "scheduled_queue" */
     AXE_engine_int_t        *engine;                /* Pointer to the engine this task resides in */
     AXE_task_free_op_data_t free_op_data;           /* Callback provided to free op_data */
@@ -44,16 +45,18 @@ struct AXE_task_int_t {
     OPA_int_t               rc;                     /* Reference count of this task */
     OPA_int_t               sufficient_complete;    /* Boolean variable indicating if all sufficient parents are complete */
     OPA_int_t               num_conditions_complete; /* Number of conditions complete.  Number of conditions needed in order to be scheduled = num_necessary_parents + 2 (1 for all sufficient parents (even 0), 1 for initialization). */
+    struct AXE_task_int_t   **necessary_parents_int; /* Array of necessary parent tasks */
+    struct AXE_task_int_t   **sufficient_parents_int; /* Array of sufficient parent tasks */
     size_t                  num_necessary_children; /* Number of necessary child tasks */
     size_t                  necessary_children_nalloc; /* Size of necessary_children in elements */
-    AXE_task_int_t          **necessary_children;   /* Array of necessary child tasks */
+    struct AXE_task_int_t          **necessary_children;   /* Array of necessary child tasks */
     size_t                  num_sufficient_children; /* Number of sufficient child tasks */
     size_t                  sufficient_children_nalloc; /* size of sufficient_children in elements */
-    AXE_task_int_t          **sufficient_children;  /* Array of sufficient child tasks */
-    AXE_task_int_t          *task_list_next;        /* Next task in task list */
-    AXE_task_int_t          *task_list_prev;        /* Previous task in task list */
-    AXE_task_int_t          *free_list_next;        /* Next task in free list.  Should be NULL unless rc has dropped to 0 and it is about to be freed by AXE_schedule_finish(). */
-};
+    struct AXE_task_int_t   **sufficient_children;  /* Array of sufficient child tasks */
+    struct AXE_task_int_t   *task_list_next;        /* Next task in task list */
+    struct AXE_task_int_t   *task_list_prev;        /* Previous task in task list */
+    struct AXE_task_int_t   *free_list_next;        /* Next task in free list.  Should be NULL unless rc has dropped to 0 and it is about to be freed by AXE_schedule_finish(). */
+} AXE_task_int_t;
 
 
 /*
@@ -62,12 +65,12 @@ struct AXE_task_int_t {
 void AXE_task_incr_ref(AXE_task_int_t *task);
 AXE_error_t AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr);
 AXE_error_t AXE_task_create(AXE_engine_int_t *engine,
-    AXE_task_int_t **task/*out*/, size_t num_necessary_parents,
-    AXE_task_int_t **necessary_parents, size_t num_sufficient_parents,
-    AXE_task_int_t **sufficient_parents, AXE_task_op_t op, void *op_data,
+    AXE_task_t task_id, size_t num_necessary_parents,
+    AXE_task_t *necessary_parents, size_t num_sufficient_parents,
+    AXE_task_t *sufficient_parents, AXE_task_op_t op, void *op_data,
     AXE_task_free_op_data_t free_op_data);
 AXE_error_t AXE_task_create_barrier(AXE_engine_int_t *engine,
-    AXE_task_int_t **task/*out*/, AXE_task_op_t op, void *op_data,
+    AXE_task_t task_id, AXE_task_op_t op, void *op_data,
     AXE_task_free_op_data_t free_op_data);
 void AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/);
 void AXE_task_get_status(AXE_task_int_t *task, AXE_status_t *status/*out*/);
@@ -75,7 +78,7 @@ AXE_error_t AXE_task_worker(void *_task);
 AXE_error_t AXE_task_wait(AXE_task_int_t *task);
 AXE_error_t AXE_task_cancel_leaf(AXE_task_int_t *task,
     AXE_remove_status_t *remove_status);
-AXE_error_t AXE_task_free(AXE_task_int_t *task);
+AXE_error_t AXE_task_free(AXE_task_int_t *task, _Bool remove_id);
 
 
 #endif /* AXE_TASK_H_INCLUDED */

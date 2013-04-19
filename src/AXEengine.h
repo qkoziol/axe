@@ -11,6 +11,7 @@
 #define AXE_ENGINE_H_INCLUDED
 
 #include "AXEprivate.h"
+#include "AXEid.h"
 #include "AXEschedule.h"
 #include "AXEthreadpool.h"
 
@@ -18,10 +19,12 @@
 /*
  * Typedefs
  */
-/* An engine consists of a schedule and a thread pool */
+/* An engine consists of a schedule, an id table, and a thread pool */
 struct AXE_engine_int_t {
     AXE_schedule_t          *schedule;
+    AXE_id_table_t          *id_table;
     AXE_thread_pool_t       *thread_pool;
+    _Bool                   exclude_close;      /* Whether to fail if tasks still exist when closing.  Used for testing. */
 };
 
 

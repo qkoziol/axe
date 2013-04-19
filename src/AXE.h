@@ -10,13 +10,14 @@
 #ifndef AXE_H_INCLUDED
 #define AXE_H_INCLUDED
 
+#include <stdint.h>
+
 
 /*
  * Public typedefs
  */
 /* AXE_int_t - handle for an asynchronously executed task */
-typedef struct AXE_task_int_t AXE_task_int_t;
-typedef AXE_task_int_t *AXE_task_t;
+typedef uint64_t AXE_task_t;
 
 /* AXE_engine_t - handle for an asynchronous engine containing tasks */
 typedef struct AXE_engine_int_t AXE_engine_int_t;
@@ -60,7 +61,7 @@ typedef enum {
  *
  * The operation routine will only be invoked once for each task, and has no
  * return value. */
-typedef void (*AXE_task_op_t)(size_t num_necessary_parents,
+typedef void (*AXE_task_op_t)(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *op_data);
 
@@ -76,20 +77,25 @@ typedef void (*AXE_task_free_op_data_t)(void *op_data);
  */
 AXE_error_t AXEcreate_engine(size_t num_threads, AXE_engine_t *engine/*out*/);
 AXE_error_t AXEterminate_engine(AXE_engine_t engine, _Bool wait_all);
-AXE_error_t AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+AXE_error_t AXEgenerate_task_id(AXE_engine_t engine, AXE_task_t *task);
+AXE_error_t AXEcreate_task(AXE_engine_t engine, AXE_task_t task,
     size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data);
-AXE_error_t AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+AXE_error_t AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t task,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data);
-AXE_error_t AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status);
+AXE_error_t AXEremove(AXE_engine_t engine, AXE_task_t task,
+    AXE_remove_status_t *remove_status);
 AXE_error_t AXEremove_all(AXE_engine_t engine,
     AXE_remove_status_t *remove_status);
-AXE_error_t AXEget_op_data(AXE_task_t task, void **op_data/*out*/);
-AXE_error_t AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/);
-AXE_error_t AXEwait(AXE_task_t task);
-AXE_error_t AXEfinish(AXE_task_t task);
-AXE_error_t AXEfinish_all(size_t num_tasks, AXE_task_t task[]);
+AXE_error_t AXEget_op_data(AXE_engine_t engine, AXE_task_t task,
+    void **op_data/*out*/);
+AXE_error_t AXEget_status(AXE_engine_t engine, AXE_task_t task,
+    AXE_status_t *status/*out*/);
+AXE_error_t AXEwait(AXE_engine_t engine, AXE_task_t task);
+AXE_error_t AXEfinish(AXE_engine_t engine, AXE_task_t task);
+AXE_error_t AXEfinish_all(AXE_engine_t engine, size_t num_tasks,
+    AXE_task_t task[]);
 AXE_error_t AXEbegin_try(void);
 AXE_error_t AXEend_try(void);
 

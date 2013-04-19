@@ -30,7 +30,7 @@
 void
 AXE_test_exclude_close_on(AXE_engine_t engine)
 {
-    AXE_schedule_exclude_close_on(((AXE_engine_int_t *)engine)->schedule);
+    ((AXE_engine_int_t *)engine)->exclude_close = TRUE;
 
     return;
 } /* end AXE_test_exclude_close_on() */
@@ -55,7 +55,7 @@ AXE_test_exclude_close_on(AXE_engine_t engine)
 void
 AXE_test_exclude_close_off(AXE_engine_t engine)
 {
-    AXE_schedule_exclude_close_off(((AXE_engine_int_t *)engine)->schedule);
+    ((AXE_engine_int_t *)engine)->exclude_close = FALSE;
 
     return;
 } /* end AXE_test_exclude_close_off() */

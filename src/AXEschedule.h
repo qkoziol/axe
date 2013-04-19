@@ -11,6 +11,7 @@
 #define AXE_SCHEDULE_H_INCLUDED
 
 #include "AXEprivate.h"
+#include "AXEtask.h"
 
 
 /*
@@ -30,12 +31,10 @@ AXE_error_t AXE_schedule_wait_all(AXE_schedule_t *schedule);
 AXE_error_t AXE_schedule_cancel(AXE_task_int_t *task,
     AXE_remove_status_t *remove_status, _Bool have_task_mutex);
 AXE_error_t AXE_schedule_cancel_all(AXE_schedule_t *schedule,
-    AXE_remove_status_t *remove_status);
+    AXE_id_table_t *id_table, AXE_remove_status_t *remove_status);
 AXE_error_t AXE_schedule_remove_from_list(AXE_task_int_t *task);
 void AXE_schedule_closing(AXE_schedule_t *schedule);
 AXE_error_t AXE_schedule_free(AXE_schedule_t *schedule);
-void AXE_schedule_exclude_close_on(AXE_schedule_t *schedule);
-void AXE_schedule_exclude_close_off(AXE_schedule_t *schedule);
 
 
 #endif /* AXE_SCHEDULE_H_INCLUDED */

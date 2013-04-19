@@ -19,6 +19,8 @@ libaxe_la_SOURCES = \
 	AXE.c \
 	AXEengine.h \
 	AXEengine.c \
+	AXEid.h \
+	AXEid.c \
 	AXEprivate.h \
 	AXEschedule.h \
 	AXEschedule.c \
