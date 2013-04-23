@@ -10,6 +10,10 @@
 #ifndef AXE_H_INCLUDED
 #define AXE_H_INCLUDED
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 /*
  * Public typedefs
@@ -93,6 +97,10 @@ AXE_error_t AXEfinish_all(size_t num_tasks, AXE_task_t task[]);
 AXE_error_t AXEbegin_try(void);
 AXE_error_t AXEend_try(void);
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* AXE_H_INCLUDED */
 

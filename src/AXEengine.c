@@ -45,6 +45,8 @@ AXE_engine_create(size_t num_threads, AXE_engine_int_t **engine/*out*/)
 {
     AXE_error_t ret_value = AXE_SUCCEED;
 
+    assert(engine);
+
     /* Call initialization routine, but only once */
     if(0 != pthread_once(&AXE_init_once_g, AXE_init))
         ERROR;
