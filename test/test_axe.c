@@ -113,8 +113,8 @@ size_t num_threads_g[] = {1, 2, 3, 5, 10};
  * array */
 size_t iter_reduction_g[] = {1, 1, 1, 3, 5};
 
-/* Definitions needed for limiting the maximum number of threads */
-MAX_NTHREADS_DEFINE
+/* Variable declarations needed for limiting the maximum number of threads */
+MAX_NTHREADS_DECL;
 
 
 /*-------------------------------------------------------------------------

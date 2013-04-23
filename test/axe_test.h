@@ -38,13 +38,13 @@ do { \
 /* Name of the file that contains the maximum number of threads */
 #define MAX_NTHREADS_FILENAME "max_nthreads.txt"
 
-/* Global definitions for variables used to limit the number of threads */
-#define MAX_NTHREADS_DEFINE \
+/* Global declarations for variables used to limit the number of threads */
+#define MAX_NTHREADS_DECL \
     int max_nthreads_g; \
     int current_nthreads_g; \
     int max_nthreads_nwaiters_g; \
     pthread_cond_t max_nthreads_cond_g; \
-    pthread_mutex_t max_nthreads_mutex_g;
+    pthread_mutex_t max_nthreads_mutex_g
 
 /* Macro to initialize variables declared in MAX_NTHREADS_DEFINE */
 #define MAX_NTHREADS_INIT(ERROR_STATEMENT) do { \
