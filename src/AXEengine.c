@@ -48,6 +48,7 @@ AXE_engine_create(AXE_engine_int_t **engine/*out*/,
 {
     AXE_error_t ret_value = AXE_SUCCEED;
 
+    assert(engine);
     assert(attr);
     assert(attr->num_threads > 0);
     assert(attr->min_id <= attr->max_id);

@@ -12,38 +12,6 @@
 
 
 /*
- * Typedefs
- */
-/* op_data struct for all tests */
-typedef struct {
-    AXE_engine_t engine;        /* The engine to run the test in (if the test does not create its own */
-    size_t num_threads;         /* The number of threads in engine */
-    OPA_int_t nfailed;          /* (Out) the number of failures of the test */
-    OPA_int_t ncomplete;        /* (Out) the number of successful completions of the test */
-    pthread_mutex_t *parallel_mutex; /* Mutex for exclusive access to tests that require a minimum number of threads, if running in parallel (test_parallel()) */
-} test_helper_t;
-
-/* Shared data for basic_task_t */
-typedef struct {
-    int max_ncalls;             /* Maximum number of calls to basic_task_worker() */
-    OPA_int_t ncalls;           /* (Out) number of calls to basic_task_worker() */
-} basic_task_shared_t;
-
-/* op_data for basic_task_worker() */
-typedef struct {
-    basic_task_shared_t *shared; /* Shared task op_data */
-    int failed;                 /* (Out) whether this task failed */
-    int run_order;              /* (Out) order in which this task was run */
-    size_t num_necessary_parents; /* (Out) num_necessary_parents parameter provided to task */
-    size_t num_sufficient_parents; /* (Out) num_sufficient_parents parameter provided to task */
-    pthread_mutex_t *mutex;     /* Mutex used for synchronization */
-    pthread_cond_t *cond;       /* Condition variable for signaling main test thread */
-    pthread_mutex_t *cond_mutex; /* Mutex associated with cond */
-    int cond_signal_sent;       /* (Out) Whether the condition signal was sent */
-} basic_task_t;
-
-
-/*
  * Macros
  */
 #ifdef TEST_EXPRESS
@@ -102,6 +70,38 @@ typedef struct {
 
 
 /*
+ * Typedefs
+ */
+/* op_data struct for all tests */
+typedef struct {
+    AXE_engine_t engine;        /* The engine to run the test in (if the test does not create its own */
+    size_t num_threads;         /* The number of threads in engine */
+    OPA_int_t nfailed;          /* (Out) the number of failures of the test */
+    OPA_int_t ncomplete;        /* (Out) the number of successful completions of the test */
+    pthread_mutex_t *parallel_mutex; /* Mutex for exclusive access to tests that require a minimum number of threads, if running in parallel (test_parallel()) */
+} test_helper_t;
+
+/* Shared data for basic_task_t */
+typedef struct {
+    int max_ncalls;             /* Maximum number of calls to basic_task_worker() */
+    OPA_int_t ncalls;           /* (Out) number of calls to basic_task_worker() */
+} basic_task_shared_t;
+
+/* op_data for basic_task_worker() */
+typedef struct {
+    basic_task_shared_t *shared; /* Shared task op_data */
+    int failed;                 /* (Out) whether this task failed */
+    int run_order;              /* (Out) order in which this task was run */
+    size_t num_necessary_parents; /* (Out) num_necessary_parents parameter provided to task */
+    size_t num_sufficient_parents; /* (Out) num_sufficient_parents parameter provided to task */
+    pthread_mutex_t *mutex;     /* Mutex used for synchronization */
+    pthread_cond_t *cond;       /* Condition variable for signaling main test thread */
+    pthread_mutex_t *cond_mutex; /* Mutex associated with cond */
+    int cond_signal_sent;       /* (Out) Whether the condition signal was sent */
+} basic_task_t;
+
+
+/*
  * Variables
  */
 /* Perform each test once for each element in this array, each time with the
@@ -114,7 +114,7 @@ size_t num_threads_g[] = {1, 2, 3, 5, 10};
 size_t iter_reduction_g[] = {1, 1, 1, 3, 5};
 
 /* Definitions needed for limiting the maximum number of threads */
-MAX_NTHREADS_DEFINE
+MAX_NTHREADS_DECL;
 
 
 /*-------------------------------------------------------------------------

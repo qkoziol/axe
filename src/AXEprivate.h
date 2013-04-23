@@ -32,13 +32,6 @@
 
 
 /*
- * Private global variables
- */
-extern OPA_int_t AXE_quiet_g;
-extern const AXE_engine_attr_t AXE_engine_attr_def_g;
-
-
-/*
  * Private macros
  */
 /* Macro to report an error and return AXE_FAIL in most functions */
@@ -84,6 +77,13 @@ extern OPA_int_t AXE_debug_nspins_add;
 extern OPA_int_t AXE_debug_nspins_finish;
 extern OPA_int_t AXE_debug_nadds;
 #endif /* AXE_DEBUG_PERF */
+
+
+/*
+ * Private global variables
+ */
+extern OPA_int_t AXE_quiet_g;
+extern const AXE_engine_attr_t AXE_engine_attr_def_g;
 
 
 #endif /* AXE_PRIVATE_H_INCLUDED */

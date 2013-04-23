@@ -12,6 +12,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 /*
  * Public typedefs
@@ -125,6 +129,10 @@ AXE_error_t AXEfinish_all(AXE_engine_t engine, size_t num_tasks,
 AXE_error_t AXEbegin_try(void);
 AXE_error_t AXEend_try(void);
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* AXE_H_INCLUDED */
 
