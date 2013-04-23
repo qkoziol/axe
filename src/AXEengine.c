@@ -8,6 +8,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include "AXEengine.h"
+#include "AXEid.h"
 #include "AXEschedule.h"
 #include "AXEtask.h"
 #include "AXEthreadpool.h"
@@ -42,9 +43,14 @@ static AXE_error_t AXE_init_status_g = AXE_SUCCEED;         /* Return value of A
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_engine_create(size_t num_threads, AXE_engine_int_t **engine/*out*/)
+AXE_engine_create(AXE_engine_int_t **engine/*out*/,
+    const AXE_engine_attr_t *attr)
 {
     AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(attr);
+    assert(attr->num_threads > 0);
+    assert(attr->min_id <= attr->max_id);
 
     /* Call initialization routine, but only once */
     if(0 != pthread_once(&AXE_init_once_g, AXE_init))
@@ -67,7 +73,7 @@ AXE_engine_create(size_t num_threads, AXE_engine_int_t **engine/*out*/)
     assert((*engine)->schedule);
 
     /* Create thread pool */
-    if(AXE_thread_pool_create(num_threads, &(*engine)->thread_pool) != AXE_SUCCEED) {
+    if(AXE_thread_pool_create(attr->num_threads, &(*engine)->thread_pool) != AXE_SUCCEED) {
         (void)AXE_schedule_free((*engine)->schedule);
         free(*engine);
         *engine = NULL;
@@ -76,7 +82,7 @@ AXE_engine_create(size_t num_threads, AXE_engine_int_t **engine/*out*/)
     assert((*engine)->thread_pool);
 
     /* Create id table */
-    if(AXE_id_table_create(AXE_ID_NUM_BUCKETS_DEF, AXE_ID_NUM_MUTEXES_DEF, AXE_ID_MIN_ID_DEF, AXE_ID_MAX_ID_DEF, &(*engine)->id_table) != AXE_SUCCEED) {
+    if(AXE_id_table_create(attr->num_buckets, attr->num_mutexes, attr->min_id, attr->max_id, &(*engine)->id_table) != AXE_SUCCEED) {
         (void)AXE_thread_pool_free((*engine)->thread_pool);
         (void)AXE_schedule_free((*engine)->schedule);
         free(*engine);

@@ -31,9 +31,15 @@ struct AXE_engine_int_t {
 /*
  * Functions
  */
-AXE_error_t AXE_engine_create(size_t num_threads,
-    AXE_engine_int_t **engine/*out*/);
+AXE_error_t AXE_engine_create(AXE_engine_int_t **engine/*out*/,
+    const AXE_engine_attr_t *attr);
 AXE_error_t AXE_engine_free(AXE_engine_int_t *engine);
+
+
+/*
+ * Global variables
+ */
+extern const AXE_engine_attr_t AXE_engine_attr_def_g;
 
 
 #endif /* AXE_ENGINE_H_INCLUDED */

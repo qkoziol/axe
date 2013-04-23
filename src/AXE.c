@@ -8,23 +8,94 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include "AXEengine.h"
+#include "AXEid.h"
 #include "AXEschedule.h"
 #include "AXEtask.h"
+#include "AXEthreadpool.h"
 
 
 /*
  * Global variables
  */
 OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of calls to AXE_begin_try() */
+const AXE_engine_attr_t AXE_engine_attr_def_g = {AXE_THREAD_POOL_NUM_THREADS_DEF, AXE_ID_NUM_BUCKETS_DEF, AXE_ID_NUM_MUTEXES_DEF, AXE_ID_MIN_ID_DEF, AXE_ID_MAX_ID_DEF}; /* Default engine creation attributes */
 
 
 /*-------------------------------------------------------------------------
- * Function:    AXEcreate_engine
+ * Function:    AXEengine_attr_init
  *
- * Purpose:     Create a new engine for asynchronous execution, with a
- *              thread pool containing the specified number of threads.
- *              An engine must be created before any tasks can be created.
- *              The engine will always create and maintain num_threads
+ * Purpose:     Initialize the provided engine attribute, setting default
+ *              values.  Must be called prior to use of the engine
+ *              attribute.
+ *
+ *              Engine attributes are not currently meant to be used
+ *              concurrently by multiple threads unless they are not
+ *              modified while being used concurrently.  If the
+ *              application wants to modify an attribute while it is being
+ *              used by another thread, it is the application's
+ *              responsibility to protect the attribute with a mutex.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEengine_attr_init(AXE_engine_attr_t *attr)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    memcpy(attr, &AXE_engine_attr_def_g, sizeof(*attr));
+
+done:
+    return ret_value;
+} /* end AXEengine_attr_init() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEengine_attr_destroy
+ *
+ * Purpose:     Destroys the engine attribute, freeing any memory used in
+ *              any internal fields.  Currently does nothing, but may be
+ *              necessary in a future version.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEengine_attr_destroy(AXE_engine_attr_t *attr)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    /* No-op for now */
+
+done:
+    return ret_value;
+} /* end AXEengine_attr_destroy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_num_threads
+ *
+ * Purpose:     Sets the number of threads for the engine to use on the
+ *              provided engine attribute.  An engine created using this
+ *              attribute will always create and maintain num_threads
  *              threads, with no extra threads set aside to, for example,
  *              schedule tasks.  All task scheduling is done on-demand by
  *              application threads (in AXEcreate_task() and
@@ -39,8 +110,357 @@ OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of cal
  *              N tasks to run concurrently in order to proceed, it is
  *              safe to set num_threads to N.
  *
- *              The handle for the newly created engine is returned in
- *              *engine.
+ *              The default value is 8.  This could be added as a
+ *              configure option in a future version.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_num_threads(AXE_engine_attr_t *attr, size_t num_threads)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(num_threads == 0)
+        ERROR;
+
+    attr->num_threads = num_threads;
+
+done:
+    return ret_value;
+} /* end AXEset_num_threads() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_num_threads
+ *
+ * Purpose:     Gets the number of threads for the engine to use from the
+ *              provided engine attribute.  An engine created using this
+ *              attribute will always create and maintain num_threads
+ *              threads, with no extra threads set aside to, for example,
+ *              schedule tasks.  All task scheduling is done on-demand by
+ *              application threads (in AXEcreate_task() and
+ *              AXEcreate_barrier_task()) and by the task exection
+ *              threads.
+ *
+ *              It is guaranteed that there will always be exactly
+ *              num_threads available for execution (with the possibiliy
+ *              of a short wait if the thread is performing its scheduling
+ *              duties), until AXEterminate_engine() is called.
+ *              Therefore, if the application algorithm requires
+ *              N tasks to run concurrently in order to proceed, it is
+ *              safe to set num_threads to N.
+ *
+ *              The default value is 8.  This could be added as a
+ *              configure option in a future version.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_num_threads(const AXE_engine_attr_t *attr, size_t *num_threads)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(num_threads)
+        *num_threads = attr->num_threads;
+
+done:
+    return ret_value;
+} /* end AXEget_num_id_threads() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_id_range
+ *
+ * Purpose:     Sets the range of ids for automatic id generation on the
+ *              specified engine attribute.  All ids generated by
+ *              AXEgenerate_task_id() will fall between min_id and max_id
+ *              (inclusive).  If all ids in the range are in use,
+ *              AXEgenerate_task_id() will fail.
+ *
+ *              Care must be taken if mixing use of AXEgenerate_task_id()
+ *              with manual assignment of task ids, as it is possible that
+ *              AXEgenerate_task_id() could generate an id that the
+ *              application thinks is free.  It is probably a good idea to
+ *              manually assign ids from outside the range specified in
+ *              this function.
+ *
+ *              The default values are 0 and UINT64_MAX.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_id_range(AXE_engine_attr_t *attr, AXE_task_t min_id, AXE_task_t max_id)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(min_id > max_id)
+        ERROR;
+
+    attr->min_id = min_id;
+    attr->max_id = max_id;
+
+done:
+    return ret_value;
+} /* end AXEset_id_range() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_id_range
+ *
+ * Purpose:     Gets the range of ids for automatic id generation from the
+ *              specified engine attribute.  All ids generated by
+ *              AXEgenerate_task_id() will fall between min_id and max_id
+ *              (inclusive).  If all ids in the range are in use,
+ *              AXEgenerate_task_id() will fail.
+ *
+ *              Care must be taken if mixing use of AXEgenerate_task_id()
+ *              with manual assignment of task ids, as it is possible that
+ *              AXEgenerate_task_id() could generate an id that the
+ *              application thinks is free.  It is probably a good idea to
+ *              manually assign ids from outside the range specified in
+ *              this function.
+ *
+ *              The default values are 0 and UINT64_MAX.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_id_range(const AXE_engine_attr_t *attr, AXE_task_t *min_id,
+    AXE_task_t *max_id)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(min_id)
+        *min_id = attr->min_id;
+    if(max_id)
+        *max_id = attr->max_id;
+
+done:
+    return ret_value;
+} /* end AXEget_id_range() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_num_id_buckets
+ *
+ * Purpose:     Sets the number of buckets in the engine's id hash table
+ *              on the provided engine attribute.  The hash function is
+ *              simply id % num_buckets.
+ *
+ *              Setting a larger value for num_buckets will reduce the
+ *              number of hash value collisions, improving performance in
+ *              most cases, but will make iteration more expensive,
+ *              reducing performance for AXEcreate_engine(),
+ *              AXEterminate_engine(), AXEcreate_barrier_task(), and
+ *              AXEremove_all(), and will consume more memory.  Setting a
+ *              smaller value for num_buckets will have the opposite
+ *              effect.
+ *
+ *              The default value is 10007.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_num_id_buckets(AXE_engine_attr_t *attr, size_t num_buckets)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(num_buckets == 0)
+        ERROR;
+
+    attr->num_buckets = num_buckets;
+
+done:
+    return ret_value;
+} /* end AXEset_num_id_buckets() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_num_id_buckets
+ *
+ * Purpose:     Gets the number of buckets in the engine's id hash table
+ *              from the provided engine attribute.  The hash function is
+ *              simply id % num_buckets.
+ *
+ *              Setting a larger value for num_buckets will reduce the
+ *              number of hash value collisions, improving performance in
+ *              most cases, but will make iteration more expensive,
+ *              reducing performance for AXEcreate_engine(),
+ *              AXEterminate_engine(), AXEcreate_barrier_task(), and
+ *              AXEremove_all(), and will consume more memory.  Setting a
+ *              smaller value for num_buckets will have the opposite
+ *              effect.
+ *
+ *              The default value is 10007.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_num_id_buckets(const AXE_engine_attr_t *attr, size_t *num_buckets)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(num_buckets)
+        *num_buckets = attr->num_buckets;
+
+done:
+    return ret_value;
+} /* end AXEget_num_id_buckets() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_num_id_mutexes
+ *
+ * Purpose:     Sets the number of mutexes used to protect id hash buckets
+ *              on the provided engine attribute.  Each hash bucket uses
+ *              its mutex to prevent simultaneous to elements in the
+ *              bucket (except in some cases where it is allowed).  The
+ *              index of the mutex used by a hash bucket is given by
+ *              bucket_index % num_mutexes.
+ *
+ *              Setting a larger value for num_mutexes will reduce
+ *              contention for the mutexes, improving performance, but
+ *              will consume more memory.  Setting a smaller value for
+ *              num_mutexes will have the opposite effect.  There is no
+ *              benefit to setting num_mutexes to a value larger than
+ *              num_buckets.
+ *
+ *              The default value is 503.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_num_id_mutexes(AXE_engine_attr_t *attr, size_t num_mutexes)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(num_mutexes == 0)
+        ERROR;
+
+    attr->num_mutexes = num_mutexes;
+
+done:
+    return ret_value;
+} /* end AXEset_num_id_mutexes() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_num_id_mutexes
+ *
+ * Purpose:     Gets the number of mutexes used to protect id hash buckets
+ *              from the provided engine attribute.  Each hash bucket uses
+ *              its mutex to prevent simultaneous to elements in the
+ *              bucket (except in some cases where it is allowed).  The
+ *              index of the mutex used by a hash bucket is given by
+ *              bucket_index % num_mutexes.
+ *
+ *              Setting a larger value for num_mutexes will reduce
+ *              contention for the mutexes, improving performance, but
+ *              will consume more memory.  Setting a smaller value for
+ *              num_mutexes will have the opposite effect.  There is no
+ *              benefit to setting num_mutexes to a value larger than
+ *              num_buckets.
+ *
+ *              The default value is 503.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_num_id_mutexes(const AXE_engine_attr_t *attr, size_t *num_mutexes)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(num_mutexes)
+        *num_mutexes = attr->num_mutexes;
+
+done:
+    return ret_value;
+} /* end AXEget_num_id_mutexes() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEcreate_engine
+ *
+ * Purpose:     Create a new engine for asynchronous execution, with the
+ *              attributes for the engine specified by attr (if present)
+ *              or default (if NULL).  The handle for the newly created
+ *              engine is returned in *engine.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
@@ -51,18 +471,16 @@ OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of cal
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEcreate_engine(size_t num_threads, AXE_engine_t *engine/*out*/)
+AXEcreate_engine(AXE_engine_t *engine/*out*/, const AXE_engine_attr_t *attr)
 {
     AXE_engine_int_t *int_engine = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
-    if(num_threads == 0)
-        ERROR;
     if(!engine)
         ERROR;
 
-    if(AXE_engine_create(num_threads, &int_engine) != AXE_SUCCEED)
+    if(AXE_engine_create(&int_engine, attr ? attr : &AXE_engine_attr_def_g) != AXE_SUCCEED)
         ERROR;
 
     *engine = int_engine;
@@ -164,7 +582,49 @@ AXEgenerate_task_id(AXE_engine_t engine, AXE_task_t *task)
 
 done:
     return ret_value;
-} /* end AXEcreate_task() */
+} /* end AXEgenerate_task_id() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXErelease_task_id
+ *
+ * Purpose:     Release the specified task id back to the engine, allowing
+ *              it to be reused.  The task must have been previously
+ *              generated by AXEgenerate_task_id(), and must not have been
+ *              used to create a task.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 16, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXErelease_task_id(AXE_engine_t engine, AXE_task_t task)
+{
+    void *obj;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!engine)
+        ERROR;
+
+    /* Lookup the id, to make sure it is present and has not been
+     * associated with a task */
+    if(AXE_id_lookup(engine->id_table, task, &obj) != AXE_SUCCEED)
+        ERROR;
+    if(obj)
+        ERROR;
+
+    /* Release task id */
+    if(AXE_id_remove(engine->id_table, task) != AXE_SUCCEED)
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXErelease_task_id() */
 
 
 /*-------------------------------------------------------------------------

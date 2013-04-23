@@ -35,6 +35,7 @@
  * Private global variables
  */
 extern OPA_int_t AXE_quiet_g;
+extern const AXE_engine_attr_t AXE_engine_attr_def_g;
 
 
 /*

@@ -14,6 +14,13 @@
 
 
 /*
+ * Macros
+ */
+/* Default number of threads in a thread pool*/
+#define AXE_THREAD_POOL_NUM_THREADS_DEF 8
+
+
+/*
  * Typedefs
  */
 typedef struct AXE_thread_pool_t AXE_thread_pool_t;
