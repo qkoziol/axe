@@ -6215,6 +6215,475 @@ error:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    test_id_helper
+ *
+ * Purpose:     Simple test for task id functionality.  Only tests serial
+ *              functionality, does not test threadsafety of id table,
+ *              threrefore only needs to be run once.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              April 23, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
+    AXE_task_t task[7];
+    int i;
+
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Set number of threads to 1 */
+    if(AXEset_num_threads(&engine_attr, 1) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Set id range to 2-4 */
+    if(AXEset_id_range(&engine_attr, 2, 4) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 1: Only automatically generated ids.  Verify that id exhaustion is
+     * handled gracefully, verify that ids can be recycled, Verify that ids used
+     * to create a task cannot be released.
+     */
+    /* Create AXE engine */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate 3 ids, verify that they are 2, 3, and 4 */
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[0] != 2)
+        TEST_ERROR;
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[1] != 3)
+        TEST_ERROR;
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[2] != 4)
+        TEST_ERROR;
+
+    /* Try to generate another id.  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Release task[1] (id 3) */
+    if(AXErelease_task_id(engine, task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another id.  Should take id 3. */
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[1] != 3)
+        TEST_ERROR;
+
+    /* Associate a task with task[1] (id 3) */
+    if(AXEcreate_task(engine, task[1], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Try to release task[1].  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXErelease_task_id(engine, task[1]) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish task[1] */
+    if(AXEfinish(engine, task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 2: Only manually generated ids.  Verify that ids can be manually
+     * given above, below, and within the range set by AXEset_id_range().
+     */
+    /* Create AXE engine */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create tasks with ids 1-5 */
+    for(i = 0; i < 5; i++) {
+        task[i] = i + 1;
+        if(AXEcreate_task(engine, task[i], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+    } /* end for */
+
+    /* Try to release tasks.  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    for(i = 0; i < 5; i++)
+        if(AXErelease_task_id(engine, task[i]) != AXE_FAIL)
+            TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish tasks */
+    if(AXEfinish_all(engine, 5, task) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 3: Mix automatic and manual id generation.  Make sure manual ids
+     * outside the range do not affect automatic generation.  Make sure manual
+     * ids inside the range are taken into account.
+     */
+    /* Set id range to 2-8 */
+    if(AXEset_id_range(&engine_attr, 2, 8) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create AXE engine */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate and release an automatic id */
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[0] != 2)
+        TEST_ERROR;
+    if(AXErelease_task_id(engine, task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create manual tasks above and below id range */
+    task[0] = 1;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    task[1] = 9;
+    if(AXEcreate_task(engine, task[1], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another automatic id.  Should be 3. */
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[2] != 3)
+        TEST_ERROR;
+
+    /* Create a manual task with id 5 */
+    task[3] = 5;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another automatic id.  Should be 6. */
+    if(AXEgenerate_task_id(engine, &task[4]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[4] != 6)
+        TEST_ERROR;
+
+    /* Create a manual task with id 8 */
+    task[5] = 8;
+    if(AXEcreate_task(engine, task[5], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another automatic id.  Should be 2. */
+    if(AXEgenerate_task_id(engine, &task[6]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[6] != 2)
+        TEST_ERROR;
+
+    /* Finish created tasks */
+    if(AXEfinish(engine, task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task[5]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Close
+     */
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    (void)AXEterminate_engine(engine, FALSE);
+
+    (void)AXEengine_attr_destroy(&engine_attr);
+
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_id_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    test_attr_helper
+ *
+ * Purpose:     Simple test for engine attribute functionality.  Only
+ *              tests serial functionality, does not test threadsafety of
+ *              anything, threrefore only needs to be run once.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              April 24, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+test_attr_helper(AXE_engine_t _engine, size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    AXE_engine_t engine;
+    _Bool engine_init = FALSE;
+    AXE_engine_attr_t engine_attr;
+    size_t num_threads;
+    size_t min_id;
+    size_t max_id;
+    size_t num_buckets;
+    size_t num_mutexes;
+    AXE_task_t task;
+
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 1: num_threads
+     */
+    /* Get number of threads, verify it is the default (8) */
+    if(AXEget_num_threads(&engine_attr, &num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_threads != 8)
+        TEST_ERROR;
+
+    /* Change number of threads to 9 */
+    if(AXEset_num_threads(&engine_attr, 9) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of threads, verify it is 9 */
+    if(AXEget_num_threads(&engine_attr, &num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_threads != 9)
+        TEST_ERROR;
+
+    /* Try to change number of threads to 0 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_num_threads(&engine_attr, 0) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of threads, verify it is 9 */
+    if(AXEget_num_threads(&engine_attr, &num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_threads != 9)
+        TEST_ERROR;
+
+
+    /*
+     * Test 2: id range
+     */
+    /* Get id range, verify it is the default (0-UINT64_MAX) */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 0)
+        TEST_ERROR;
+    if(max_id != UINT64_MAX)
+        TEST_ERROR;
+
+    /* Change range to 3-42 */
+    if(AXEset_id_range(&engine_attr, 3, 42) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get id range verify it is 3-42 */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 3)
+        TEST_ERROR;
+    if(max_id != 42)
+        TEST_ERROR;
+
+    /* Change range to 11-11 */
+    if(AXEset_id_range(&engine_attr, 11, 11) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get id range verify it is 11-11 */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 11)
+        TEST_ERROR;
+    if(max_id != 11)
+        TEST_ERROR;
+
+    /* Change range to 11-10 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_id_range(&engine_attr, 11, 10) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get id range verify it is 11-11 */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 11)
+        TEST_ERROR;
+    if(max_id != 11)
+        TEST_ERROR;
+
+
+    /*
+     * Test 3: num_buckets
+     */
+    /* Get number of buckets, verify it is the default (10007) */
+    if(AXEget_num_id_buckets(&engine_attr, &num_buckets) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_buckets != 10007)
+        TEST_ERROR;
+
+    /* Change number of buckets to 8419 */
+    if(AXEset_num_id_buckets(&engine_attr, 8419) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of buckets, verify it is 8419 */
+    if(AXEget_num_id_buckets(&engine_attr, &num_buckets) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_buckets != 8419)
+        TEST_ERROR;
+
+    /* Try to change number of buckets to 0 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_num_id_buckets(&engine_attr, 0) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of buckets, verify it is 8419 */
+    if(AXEget_num_id_buckets(&engine_attr, &num_buckets) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_buckets != 8419)
+        TEST_ERROR;
+
+
+    /*
+     * Test 4: num_mutexes
+     */
+    /* Get number of mutexes, verify it is the default (503) */
+    if(AXEget_num_id_mutexes(&engine_attr, &num_mutexes) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_mutexes != 503)
+        TEST_ERROR;
+
+    /* Change number of mutexes to 521 */
+    if(AXEset_num_id_mutexes(&engine_attr, 521) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of mutexes, verify it is 521 */
+    if(AXEget_num_id_mutexes(&engine_attr, &num_mutexes) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_mutexes != 521)
+        TEST_ERROR;
+
+    /* Try to change number of mutexes to 0 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_num_id_mutexes(&engine_attr, 0) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of mutexes, verify it is 521 */
+    if(AXEget_num_id_mutexes(&engine_attr, &num_mutexes) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_mutexes != 521)
+        TEST_ERROR;
+
+
+    /*
+     * Test 5: Create engine
+     */
+    /* Create AXE engine using the attribute */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Create a task using the engine */
+    if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task != 11)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task, 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish task */
+    if(AXEfinish(engine, task) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = FALSE;
+
+
+    /*
+     * Close
+     */
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    if(engine_init)
+        (void)AXEterminate_engine(engine, FALSE);
+
+    (void)AXEengine_attr_destroy(&engine_attr);
+
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_attr_helper() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    test_serial
  *
  * Purpose:     Runs the test supplied in the helper argument.  Uses
@@ -6705,6 +7174,10 @@ main(int argc, char **argv)
     /* Check if we can run with 2 threads */
     MAX_NTHREADS_CHECK_STATIC_IF(2)
         nerrors += test_serial(test_num_threads_helper, 2, NUM_THREADS_NITER, FALSE, "number of threads");
+    MAX_NTHREADS_CHECK_STATIC_IF(1)
+        nerrors += test_serial(test_id_helper, 1, 1, FALSE, "task ids");
+    MAX_NTHREADS_CHECK_STATIC_IF(1)
+        nerrors += test_serial(test_attr_helper, 1, 1, FALSE, "engine attributes");
 
     /* Free memory allocated for limiting number of threads */
     MAX_NTHREADS_FREE(puts("FAILED to shut down properly!\n"); exit(1));

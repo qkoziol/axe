@@ -91,7 +91,7 @@ typedef void (*AXE_task_free_op_data_t)(void *op_data);
 AXE_error_t AXEengine_attr_init(AXE_engine_attr_t *attr);
 AXE_error_t AXEengine_attr_destroy(AXE_engine_attr_t *attr);
 AXE_error_t AXEset_num_threads(AXE_engine_attr_t *attr, size_t num_threads);
-AXE_error_t AXEget_num_id_threads(const AXE_engine_attr_t *attr,
+AXE_error_t AXEget_num_threads(const AXE_engine_attr_t *attr,
     size_t *num_threads);
 AXE_error_t AXEset_id_range(AXE_engine_attr_t *attr, AXE_task_t min_id,
     AXE_task_t max_id);
