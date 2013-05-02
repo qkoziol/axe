@@ -118,6 +118,193 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    AXE_id_generate
+ *
+ * Purpose:     Generates an id and inserts it into the table, without an
+ *              object.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 4, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXE_id_generate(AXE_id_table_t *id_table, AXE_id_t *id)
+{
+    AXE_id_entry_t *id_entry = NULL;
+    AXE_id_entry_t *tmp_id_entry = NULL;
+    size_t max_search_id;
+    size_t i;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(id_table);
+    assert(id);
+
+    /* Create new id entry */
+    if(NULL == (id_entry = (AXE_id_entry_t *)malloc(sizeof(AXE_id_entry_t))))
+        ERROR;
+    id_entry->obj = NULL;
+    id_entry->next = NULL;
+
+    /* Lock next id mutex */
+    if(0 != pthread_mutex_lock(&id_table->next_id_mutex))
+        ERROR;
+
+    /* Check if the id table is "wrapped", necessitating a search for a usable
+     * id */
+    if(OPA_load_int(&id_table->wrapped)) {
+        /* Wrapped, search for an open id.  First loop look for an empty bucket.
+         * If not found, then search exhaustively for an id. */
+        /* Unlock next id mutex */
+        if(0 != pthread_mutex_unlock(&id_table->next_id_mutex))
+            ERROR;
+        
+        /* Only search one loop of the table, or until max_id */
+        if((id_table->max_id - id_table->min_id) >= id_table->num_buckets)
+            max_search_id = id_table->min_id + id_table->num_buckets - 1;
+        else
+            max_search_id = id_table->max_id;
+
+        for(id_entry->id = id_table->min_id; id_entry->id <= max_search_id; id_entry->id++)
+            if(NULL == OPA_cas_ptr(&id_table->buckets[id_entry->id % id_table->num_buckets].head, NULL, id_entry))
+                break;
+
+        /* If we did not find an id, search all possible ids exhaustively */
+        if(id_entry->id > max_search_id) {
+            for(id_entry->id = id_table->min_id;
+                    (id_entry->id <= id_table->max_id);
+                    id_entry->id++) {
+                /* Calculate index into hash table */
+                i = (size_t)(id_entry->id % id_table->num_buckets);
+
+                /* Lock the bucket mutex */
+                if(0 != pthread_mutex_lock(id_table->buckets[i].mutex))
+                    ERROR;
+
+                /* Attempt to add the entry by compare-and-swap.  Only works if
+                 * the bucket is empty.  This is unlikely but could happen if
+                 * another thread emptied the bucket.  Must use compare-and-swap
+                 * because other threads may add a head entry by
+                 * compare-and-swap without taking the mutex. */
+                if(NULL == OPA_cas_ptr(&id_table->buckets[i].head, NULL, id_entry))
+                    /* Set tmp_id_entry to signal the for loop to exit */
+                    tmp_id_entry = id_entry;
+                else {
+                    /* Scan the list to get to the end.  Also check if the id is
+                     * already present.  We know that the list must not be empty
+                     * at this point because entries cannot be deleted without
+                     * taking the bucket mutex. */
+                    tmp_id_entry = OPA_load_ptr(&id_table->buckets[i].head);
+                    assert(tmp_id_entry);
+                    while(1) {
+                        assert(tmp_id_entry->id % id_table->num_buckets == i);
+                        if(tmp_id_entry->id == id_entry->id) {
+                            tmp_id_entry = NULL;
+                            break;
+                        } /* end if */
+                        if(!tmp_id_entry->next)
+                            break;
+                        tmp_id_entry = tmp_id_entry->next;
+                    } /* end while */
+
+                    /* Add entry if the id is not in use */
+                    if(tmp_id_entry)
+                        tmp_id_entry->next = id_entry;
+                } /* end if */
+
+                /* Unlock the bucket mutex */
+                if(0 != pthread_mutex_unlock(id_table->buckets[i].mutex))
+                    ERROR;
+
+                /* If we inserted id_entry, tmp_id_entry will be set, and break
+                 * out of the loop.  Must do so here and not in the for
+                 * statement so id_entry->id isn't changed after it is inserted.
+                 */
+                if(tmp_id_entry)
+                    break;
+            } /* end for */
+
+            /* If we were unable to find an id, return an error */
+            if(!tmp_id_entry)
+                ERROR;
+        } /* end if */
+    } /* end if */
+    else {
+        /* Not wrapped, use and update next_id */
+        /* Retrieve id */
+        id_entry->id = id_table->next_id;
+
+        /* Update next_id or mark as wrapped, as appropriate */
+        if(id_table->next_id == id_table->max_id)
+            OPA_store_int(&id_table->wrapped, TRUE);
+        else
+            id_table->next_id++;
+
+        /* Calculate index into hash table */
+        i = (size_t)(id_entry->id % id_table->num_buckets);
+
+        /* Write barrier to make sure id_entry is initialized before it is added
+         * to the table */
+        OPA_write_barrier();
+
+        /* Attempt to add the entry by compare-and-swap.  Only works if the
+         * bucket is empty */
+        if(NULL != OPA_cas_ptr(&id_table->buckets[i].head, NULL, id_entry)) {
+            /* Bucket was not empty */
+            /* Lock the bucket mutex */
+            if(0 != pthread_mutex_lock(id_table->buckets[i].mutex))
+                ERROR;
+
+            /* Try again to compare-and-swap the head with a pointer, in case it
+             * was deleted since the last check.  Must use compare-and-swap
+             * because other threads may add a head entry by compare-and-swap
+             * without taking the mutex. */
+            if(NULL != OPA_cas_ptr(&id_table->buckets[i].head, NULL, id_entry)) {
+                /* Scan the list to get to the end.  We know that the list must
+                 * not be empty at this point because entries cannot be deleted
+                 * without taking the bucket mutex. */
+                tmp_id_entry = OPA_load_ptr(&id_table->buckets[i].head);
+                assert(tmp_id_entry);
+                while(1) {
+                    assert(tmp_id_entry->id % id_table->num_buckets == i);
+                    assert(tmp_id_entry->id != id_entry->id);
+                    if(!tmp_id_entry->next)
+                        break;
+                    tmp_id_entry = tmp_id_entry->next;
+                } /* end while */
+
+                /* Add entry to list*/
+                tmp_id_entry->next = id_entry;
+            } /* end if */
+
+            /* Unlock the bucket mutex */
+            if(0 != pthread_mutex_unlock(id_table->buckets[i].mutex))
+                ERROR;
+        } /* end if */
+
+        /* Unlock next id mutex.  Cannot unlock earlier because another thread
+         * may mark the table as wrapped, allowing other threads to use this id
+         * before this thread adds it to the table. */
+        if(0 != pthread_mutex_unlock(&id_table->next_id_mutex))
+            ERROR;
+    } /* end if */
+
+    /* Return generated id */
+    *id = id_entry->id;
+
+done:
+    if(ret_value == AXE_FAIL)
+        if(id_entry)
+            free(id_entry);
+
+    return ret_value;
+} /* end AXE_id_generate() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    AXE_id_insert
  *
  * Purpose:     Inserts an object into an id table with the specified id.
@@ -169,6 +356,10 @@ AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj)
         id_entry->obj = obj;
         id_entry->next = NULL;
 
+        /* Write barrier to make sure id_entry is initialized before it is added
+         * to the table */
+        OPA_write_barrier();
+
         /* Try to add to bucket.  Could fail if something was added from another
          * thread since the load above */
         if(NULL == OPA_cas_ptr(&id_table->buckets[i].head, NULL, id_entry))
@@ -179,9 +370,42 @@ AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj)
     if(0 != pthread_mutex_lock(id_table->buckets[i].mutex))
         ERROR;
 
-    /* Scan the list to get to the end, or find matching empty id entry */
+    /* Try again to compare-and-swap the head with a pointer, in case it was
+     * deleted since the last check.  Must use compare-and-swap because other
+     * threads may add a head entry by compare-and-swap without taking the
+     * mutex.  Can temporaily add a bogus pointer because other threads need to
+     * take the mutex before dereferencing the pointer. */
+    if(NULL == OPA_cas_ptr(&id_table->buckets[i].head, NULL, &i)) {
+        /* Create new id entry if it was not created earlier */
+        if(!id_entry) {
+            if(NULL == (id_entry = (AXE_id_entry_t *)malloc(sizeof(AXE_id_entry_t)))) {
+                (void)pthread_mutex_unlock(id_table->buckets[i].mutex);
+                ERROR;
+            } /* end if */
+            id_entry->id = id;
+            id_entry->obj = obj;
+            id_entry->next = NULL;
+        } /* end if */
+
+        /* No write barrier necessary because other threads must take the bucket
+         * mutex we currently hold before accessing fields in id_entry */
+
+        /* Add to bucket */
+        OPA_store_ptr(&id_table->buckets[i].head, id_entry);
+
+        /* Return */
+        if(0 != pthread_mutex_unlock(id_table->buckets[i].mutex))
+            ERROR;
+        goto done;
+    } /* end if */
+
+    /* Scan the list to get to the end, or find matching empty id entry.  We
+     * know that the list must not be empty at this point because entries cannot
+     * be deleted without taking the bucket mutex. */
     tmp_id_entry = OPA_load_ptr(&id_table->buckets[i].head);
+    assert(tmp_id_entry);
     while(1) {
+        assert(tmp_id_entry->id % id_table->num_buckets == i);
         if(tmp_id_entry->id == id) {
             if(tmp_id_entry->obj) {
                 (void)pthread_mutex_unlock(id_table->buckets[i].mutex);
@@ -213,6 +437,9 @@ AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj)
             id_entry->next = NULL;
         } /* end if */
 
+        /* No write barrier necessary because other threads must take the bucket
+         * mutex we currently hold before accessing fields in id_entry */
+
         /* Append id_entry to list */
         tmp_id_entry->next = id_entry;
     } /* end if */
@@ -228,173 +455,6 @@ done:
 
     return ret_value;
 } /* end AXE_id_insert() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    AXE_id_generate
- *
- * Purpose:     Generates an id and inserts it into the table, without an
- *              object.
- *
- * Return:      Success: AXE_SUCCEED
- *              Failure: AXE_FAIL
- *
- * Programmer:  Neil Fortner
- *              April 4, 2013
- *
- *-------------------------------------------------------------------------
- */
-AXE_error_t
-AXE_id_generate(AXE_id_table_t *id_table, AXE_id_t *id)
-{
-    AXE_id_entry_t *id_entry = NULL;
-    AXE_id_entry_t *tmp_id_entry = NULL;
-    size_t max_search_id;
-    size_t i;
-    AXE_error_t ret_value = AXE_SUCCEED;
-
-    assert(id_table);
-    assert(id);
-
-    /* Create new id entry */
-    if(NULL == (id_entry = (AXE_id_entry_t *)malloc(sizeof(AXE_id_entry_t))))
-        ERROR;
-    id_entry->obj = NULL;
-    id_entry->next = NULL;
-
-    /* Lock next id mutex */
-    if(0 != pthread_mutex_lock(&id_table->next_id_mutex))
-        ERROR;
-
-    /* Check if the id table is "wrapped", necessaitating a search for a usable
-     * id */
-    if(OPA_load_int(&id_table->wrapped)) {
-        /* Wrapped, search for an open id.  First loop look for an empty bucket.
-         * If not found, then search exhaustively for an id. */
-        /* Unlock next id mutex */
-        if(0 != pthread_mutex_unlock(&id_table->next_id_mutex))
-            ERROR;
-        
-        /* Only search one loop of the table, or until max_id */
-        if((id_table->max_id - id_table->min_id) >= id_table->num_buckets)
-            max_search_id = id_table->min_id + id_table->num_buckets - 1;
-        else
-            max_search_id = id_table->max_id;
-
-        for(id_entry->id = id_table->min_id; id_entry->id <= max_search_id; id_entry->id++)
-            if(NULL == OPA_cas_ptr(&id_table->buckets[id_entry->id % id_table->num_buckets].head, NULL, id_entry))
-                break;
-
-        /* If we did not find an id, search all possibly ids exhaustively */
-        if(id_entry->id > max_search_id) {
-            for(id_entry->id = id_table->min_id;
-                    (id_entry->id <= id_table->max_id) && !tmp_id_entry;
-                    id_entry->id++) {
-                /* Calculate index into hash table */
-                i = (size_t)(id_entry->id % id_table->num_buckets);
-
-                /* Attempt to add the entry by compare-and-swap.  Only works if
-                 * the bucket is empty.  This is unlikely but could happen if
-                 * another thread emptied the bucket. */
-                if(NULL != OPA_cas_ptr(&id_table->buckets[i].head, NULL, id_entry)) {
-                    /* Lock the bucket mutex */
-                    if(0 != pthread_mutex_lock(id_table->buckets[i].mutex))
-                        ERROR;
-
-                    /* Scan the list to get to the end.  Also check if the id is
-                     * already present.  Need to handle the case where
-                     * tmp_id_entry is NULL in case it was removed between the
-                     * CAS and the lock. */
-                    tmp_id_entry = OPA_load_ptr(&id_table->buckets[i].head);
-                    if(tmp_id_entry) {
-                        while(1) {
-                            if(tmp_id_entry->id == id_entry->id) {
-                                tmp_id_entry = NULL;
-                                break;
-                            } /* end if */
-                            if(!tmp_id_entry->next)
-                                break;
-                            tmp_id_entry = tmp_id_entry->next;
-                        } /* end while */
-
-                        /* Add entry if the id is not in use */
-                        if(tmp_id_entry)
-                            tmp_id_entry->next = id_entry;
-                    } /* end if */
-                    else
-                        OPA_store_ptr(&id_table->buckets[i].head, id_entry);
-
-                    /* Unlock the bucket mutex */
-                    if(0 != pthread_mutex_unlock(id_table->buckets[i].mutex))
-                        ERROR;
-                } /* end if */
-            } /* end for */
-
-            /* If we were unable to find an id, return an error */
-            if(!tmp_id_entry)
-                ERROR;
-        } /* end if */
-    } /* end if */
-    else {
-        /* Not wrapped, use and update next_id */
-        /* Retrieve id */
-        id_entry->id = id_table->next_id;
-
-        /* Update next_id or mark as wrapped, as appropriate */
-        if(id_table->next_id == id_table->max_id)
-            OPA_store_int(&id_table->wrapped, TRUE);
-        else
-            id_table->next_id++;
-
-        /* Unlock next id mutex */
-        if(0 != pthread_mutex_unlock(&id_table->next_id_mutex))
-            ERROR;
-
-        /* Calculate index into hash table */
-        i = (size_t)(id_entry->id % id_table->num_buckets);
-
-        /* Attempt to add the entry by compare-and-swap.  Only works if the
-         * bucket is empty */
-        if(NULL != OPA_cas_ptr(&id_table->buckets[i].head, NULL, id_entry)) {
-            /* Bucket was not empty */
-            /* Lock the bucket mutex */
-            if(0 != pthread_mutex_lock(id_table->buckets[i].mutex))
-                ERROR;
-
-            /* Scan the list to get to the end.  Need to handle the case where
-             * tmp_id_entry is NULL in case it was removed between the CAS and
-             * the lock. */
-            tmp_id_entry = OPA_load_ptr(&id_table->buckets[i].head);
-            if(tmp_id_entry) {
-                while(1) {
-                    assert(tmp_id_entry->id != id_entry->id);
-                    if(!tmp_id_entry->next)
-                        break;
-                    tmp_id_entry = tmp_id_entry->next;
-                } /* end while */
-
-                /* Add entry to list*/
-                tmp_id_entry->next = id_entry;
-            } /* end if */
-            else
-                OPA_store_ptr(&id_table->buckets[i].head, id_entry);
-
-            /* Unlock the bucket mutex */
-            if(0 != pthread_mutex_unlock(id_table->buckets[i].mutex))
-                ERROR;
-        } /* end if */
-    } /* end if */
-
-    /* Return generated id */
-    *id = id_entry->id;
-
-done:
-    if(ret_value == AXE_FAIL)
-        if(id_entry)
-            free(id_entry);
-
-    return ret_value;
-} /* end AXE_id_generate() */
 
 
 /*-------------------------------------------------------------------------
@@ -432,7 +492,8 @@ AXE_id_lookup(AXE_id_table_t *id_table, AXE_id_t id, void **obj)
 
     /* Scan the list to find the id entry */
     for(id_entry = OPA_load_ptr(&id_table->buckets[i].head);
-            id_entry && (id_entry->id != id); id_entry = id_entry->next);
+            id_entry && (id_entry->id != id); id_entry = id_entry->next)
+        assert(id_entry->id % id_table->num_buckets == i);
 
     /* Unlock the bucket mutex */
     if(0 != pthread_mutex_unlock(id_table->buckets[i].mutex))
@@ -482,8 +543,10 @@ AXE_id_remove(AXE_id_table_t *id_table, AXE_id_t id)
 
     /* Scan the list to find the id entry */
     for(id_entry = OPA_load_ptr(&id_table->buckets[i].head);
-            id_entry && (id_entry->id != id); id_entry = id_entry->next)
+            id_entry && (id_entry->id != id); id_entry = id_entry->next) {
+        assert(id_entry->id % id_table->num_buckets == i);
         prev_id_entry = id_entry;
+    } /* end for */
 
     /* Check if we found the id */
     if(!id_entry) {
@@ -546,6 +609,7 @@ AXE_id_iterate(AXE_id_table_t *id_table, AXE_id_iterate_op_t op, void *op_data)
 
             /* Make the callback for each entry in the bucket */
             while(id_entry) {
+                assert(id_entry->id % id_table->num_buckets == i);
                 if(id_entry->obj && (op(id_entry->obj, op_data) != AXE_SUCCEED)) {
                     (void)pthread_mutex_unlock(id_table->buckets[i].mutex);
                     ERROR;
@@ -597,6 +661,7 @@ AXE_id_table_free(AXE_id_table_t *id_table, AXE_id_iterate_op_t op,
             /* Make the callback for each entry in the bucket, and free each
              * entry */
             do {
+                assert(id_entry->id % id_table->num_buckets == i);
                 if(id_entry->obj && (op(id_entry->obj, op_data) != AXE_SUCCEED))
                     ERROR;
                 tmp_id_entry = id_entry;

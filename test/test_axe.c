@@ -6468,8 +6468,8 @@ test_attr_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     _Bool engine_init = FALSE;
     AXE_engine_attr_t engine_attr;
     size_t num_threads;
-    size_t min_id;
-    size_t max_id;
+    AXE_task_t min_id;
+    AXE_task_t max_id;
     size_t num_buckets;
     size_t num_mutexes;
     AXE_task_t task;
@@ -6645,6 +6645,33 @@ test_attr_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
         TEST_ERROR;
     if(task != 11)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task, 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish task */
+    if(AXEfinish(engine, task) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = FALSE;
+
+
+    /*
+     * Test 5: Create engine with NULL attribute
+     */
+    /* Create AXE engine using NULL attribute */
+    if(AXEcreate_engine(&engine, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Create a task using the engine */
+    if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task != 0)
         TEST_ERROR;
     if(AXEcreate_task(engine, task, 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
         TEST_ERROR;
@@ -7174,8 +7201,10 @@ main(int argc, char **argv)
     /* Check if we can run with 2 threads */
     MAX_NTHREADS_CHECK_STATIC_IF(2)
         nerrors += test_serial(test_num_threads_helper, 2, NUM_THREADS_NITER, FALSE, "number of threads");
+    /* Check if we can run with 1 thread */
     MAX_NTHREADS_CHECK_STATIC_IF(1)
         nerrors += test_serial(test_id_helper, 1, 1, FALSE, "task ids");
+    /* Check if we can run with 1 thread */
     MAX_NTHREADS_CHECK_STATIC_IF(1)
         nerrors += test_serial(test_attr_helper, 1, 1, FALSE, "engine attributes");
 
