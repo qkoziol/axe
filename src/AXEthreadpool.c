@@ -126,6 +126,7 @@ AXE_thread_pool_create(size_t num_threads,
         thread = (*thread_pool)->threads[(*thread_pool)->num_threads];
 
         /* Initialize thread */
+        OPA_Queue_header_init(&thread->thread_queue_hdr);
         thread->thread_pool = *thread_pool;
         if(0 != pthread_cond_init(&thread->thread_cond, NULL))
             ERROR;
