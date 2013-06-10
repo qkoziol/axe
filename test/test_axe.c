@@ -113,7 +113,7 @@ size_t num_threads_g[] = {1, 2, 3, 5, 10};
  * array */
 size_t iter_reduction_g[] = {1, 1, 1, 3, 5};
 
-/* Variable declarations needed for limiting the maximum number of threads */
+/* Definitions needed for limiting the maximum number of threads */
 MAX_NTHREADS_DECL;
 
 
@@ -134,9 +134,9 @@ MAX_NTHREADS_DECL;
  *-------------------------------------------------------------------------
  */
 void
-basic_task_worker(size_t num_necessary_parents, AXE_task_t necessary_parents[],
-    size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
-    void *_task_data)
+basic_task_worker(AXE_engine_t engine, size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_task_data)
 {
     basic_task_t *task_data = (basic_task_t *)_task_data;
     size_t i;
@@ -183,10 +183,10 @@ basic_task_worker(size_t num_necessary_parents, AXE_task_t necessary_parents[],
 
     /* Decrement ref counts on parent arrays, as required */
     for(i = 0; i < num_necessary_parents; i++)
-        if(AXEfinish(necessary_parents[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, necessary_parents[i]) != AXE_SUCCEED)
             task_data->failed = 1;
     for(i = 0; i < num_sufficient_parents; i++)
-        if(AXEfinish(sufficient_parents[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, sufficient_parents[i]) != AXE_SUCCEED)
             task_data->failed = 1;
 
     return;
@@ -252,9 +252,9 @@ basic_task_free(void *_task_data)
  *-------------------------------------------------------------------------
  */
 void
-test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
-    size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
-    void *_helper_data)
+test_simple_helper(AXE_engine_t engine, size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_task_t task[3];
@@ -288,16 +288,18 @@ test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         task_data[i].run_order = -1;
 
     /* Create simple task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -317,7 +319,7 @@ test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Close task */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /*
@@ -332,34 +334,40 @@ test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         task_data[i].run_order = -1;
 
     /* Create tasks */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(helper_data->engine, &task[2], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[2], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -381,16 +389,19 @@ test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
     /*
      * Test 3: No task id requested
+     */
+    /* Note that we no longer support creation of tasks without task ids.  Keep
+     * this test around anyways and just immediately close ids.  -NAF 4/17/2013
      */
     /* Use dynamic allocation so we do not run into problems if this function
      * returns while a task is still running, which would otherwise cause its
@@ -427,8 +438,12 @@ test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Create simple task */
-    if(AXEcreate_task(helper_data->engine, NULL, 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             dyn_task_data, basic_task_free) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for condition signal from thread, to guarantee that it actually ran
@@ -452,31 +467,38 @@ test_simple_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
      * Test 4: No worker task
      */
     /* Create simple task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, NULL, NULL, NULL)
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, NULL, NULL, NULL)
             != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
 
     /* Close task */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
     /*
      * Test 5: No task id requested and no worker task
      */
+    /* See note for test 3  -NAF 4/17/2013*/
     /* Create simple task */
-    if(AXEcreate_task(helper_data->engine, NULL, 0, NULL, 0, NULL, NULL, NULL, NULL)
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, NULL, NULL, NULL)
             != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -507,7 +529,7 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_necessary_helper(size_t num_necessary_parents,
+test_necessary_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
@@ -549,25 +571,29 @@ test_necessary_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create first task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -593,9 +619,9 @@ test_necessary_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -611,36 +637,42 @@ test_necessary_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create first child task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second child task */
-    if(AXEcreate_task(helper_data->engine, &task[2], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[2], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -672,11 +704,11 @@ test_necessary_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -692,36 +724,42 @@ test_necessary_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create first parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second parent task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child task */
     parent_task[0] = task[0];
     parent_task[1] = task[1];
-    if(AXEcreate_task(helper_data->engine, &task[2], 2, parent_task, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[2], 2, parent_task, 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -753,11 +791,11 @@ test_necessary_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -791,17 +829,23 @@ test_necessary_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Create first parent task */
-        if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+        if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
                 &task_data[0], NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Create second parent task */
-        if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, basic_task_worker,
+        if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, basic_task_worker,
                 &task_data[1], NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Create third parent task */
-        if(AXEcreate_task(helper_data->engine, &task[2], 0, NULL, 0, NULL, basic_task_worker,
+        if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[2], 0, NULL, 0, NULL, basic_task_worker,
                 &task_data[2], NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
@@ -809,29 +853,31 @@ test_necessary_helper(size_t num_necessary_parents,
         parent_task[0] = task[0];
         parent_task[1] = task[1];
         parent_task[2] = task[2];
-        if(AXEcreate_task(helper_data->engine, &task[3], 3, parent_task, 0, NULL, basic_task_worker,
+        if(AXEgenerate_task_id(helper_data->engine, &task[3]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[3], 3, parent_task, 0, NULL, basic_task_worker,
                 &task_data[3], NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Wait for third parent task to complete */
-        if(AXEwait(task[2]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Make sure the blocked parent tasks have not yet completed, and the
          * child has not been scheduled */
-        if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
-        if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
-        if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[3], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -841,24 +887,24 @@ test_necessary_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Wait for first parent task to complete */
-        if(AXEwait(task[0]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Make sure the blocked parent task has not run yet, and the child has
          * not been scheduled */
-        if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
-        if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[3], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -868,23 +914,23 @@ test_necessary_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Wait for child task to complete */
-        if(AXEwait(task[3]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[3]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Verify results */
-        if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[3], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -922,13 +968,13 @@ test_necessary_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Close tasks */
-        if(AXEfinish(task[0]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEfinish(task[1]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEfinish(task[2]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEfinish(task[3]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[3]) != AXE_SUCCEED)
             TEST_ERROR;
         for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
             task_data[i].mutex = NULL;
@@ -957,29 +1003,36 @@ test_necessary_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create first parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create secondary parent tasks */
-    for(i = 1; i <= 8; i++)
-        if(AXEcreate_task(helper_data->engine, &task[i], 1, &task[0], 0, NULL, basic_task_worker,
+    for(i = 1; i <= 8; i++) {
+        if(AXEgenerate_task_id(helper_data->engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[i], 1, &task[0], 0, NULL, basic_task_worker,
                 &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Create child task */
-    if(AXEcreate_task(helper_data->engine, &task[9], 9, task, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[9]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[9], 9, task, 0, NULL, basic_task_worker,
             &task_data[9], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Make sure the primary parent task has not yet completed, and the other
      * tasks have not been scheduled */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 1; i <= 9; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -990,12 +1043,12 @@ test_necessary_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[9]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[9]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i < 10; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -1028,7 +1081,7 @@ test_necessary_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 10; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         task_data[i].mutex = NULL;
@@ -1051,24 +1104,29 @@ test_necessary_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child tasks */
-    for(i = 1; i <= 9; i++)
-        if(AXEcreate_task(helper_data->engine, &task[i], 1, &task[0], 0, NULL, basic_task_worker,
+    for(i = 1; i <= 9; i++) {
+        if(AXEgenerate_task_id(helper_data->engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[i], 1, &task[0], 0, NULL, basic_task_worker,
                 &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Make sure the primary parent task has not yet completed, and the other
      * tasks have not been scheduled */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 1; i <= 9; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -1080,12 +1138,12 @@ test_necessary_helper(size_t num_necessary_parents,
 
     /* Wait for tasks to complete */
     for(i = 1; i <= 9; i++)
-        if(AXEwait(task[i]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i < 10; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -1112,7 +1170,7 @@ test_necessary_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 10; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         task_data[i].mutex = NULL;
@@ -1155,7 +1213,7 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_sufficient_helper(size_t num_necessary_parents,
+test_sufficient_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
@@ -1197,25 +1255,29 @@ test_sufficient_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create first task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -1241,9 +1303,9 @@ test_sufficient_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -1259,36 +1321,42 @@ test_sufficient_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create first child task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second child task */
-    if(AXEcreate_task(helper_data->engine, &task[2], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[2], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -1320,11 +1388,11 @@ test_sufficient_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -1340,40 +1408,46 @@ test_sufficient_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create first parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second parent task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child task */
     parent_task[0] = task[0];
     parent_task[1] = task[1];
-    if(AXEcreate_task(helper_data->engine, &task[2], 0, NULL, 2, parent_task, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[2], 0, NULL, 2, parent_task, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -1402,11 +1476,11 @@ test_sufficient_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -1440,33 +1514,39 @@ test_sufficient_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Create first parent task */
-        if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+        if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
                 &task_data[0], NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Create second parent task */
-        if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, basic_task_worker,
+        if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, basic_task_worker,
                 &task_data[1], NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Create child task */
         parent_task[0] = task[0];
         parent_task[1] = task[1];
-        if(AXEcreate_task(helper_data->engine, &task[2], 0, NULL, 2, parent_task, basic_task_worker,
+        if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[2], 0, NULL, 2, parent_task, basic_task_worker,
                 &task_data[2], NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Make sure the parent tasks have not finished, and child has not been
          * scheduled */
-        if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
-        if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
-        if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -1476,20 +1556,20 @@ test_sufficient_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Wait for child task to complete */
-        if(AXEwait(task[2]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Make sure the first parent and child have completed, and the second
          * parent has not finished */
-        if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
-        if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -1499,19 +1579,19 @@ test_sufficient_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Wait for second parent task to complete */
-        if(AXEwait(task[1]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Verify results */
-        if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
-        if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -1543,11 +1623,11 @@ test_sufficient_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Close tasks */
-        if(AXEfinish(task[0]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEfinish(task[1]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEfinish(task[2]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
             TEST_ERROR;
         for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
             task_data[i].mutex = NULL;
@@ -1576,29 +1656,36 @@ test_sufficient_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create first parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create secondary parent tasks */
-    for(i = 1; i <= 8; i++)
-        if(AXEcreate_task(helper_data->engine, &task[i], 0, NULL, 1, &task[0], basic_task_worker,
+    for(i = 1; i <= 8; i++) {
+        if(AXEgenerate_task_id(helper_data->engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[i], 0, NULL, 1, &task[0], basic_task_worker,
                 &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Create child task */
-    if(AXEcreate_task(helper_data->engine, &task[9], 0, NULL, 9, task, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[9]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[9], 0, NULL, 9, task, basic_task_worker,
             &task_data[9], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Make sure the primary parent task has not yet completed, and the other
      * tasks have not been scheduled */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 1; i <= 9; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -1610,12 +1697,12 @@ test_sufficient_helper(size_t num_necessary_parents,
 
     /* Wait for tasks to complete */
     for(i = 1; i <= 9; i++)
-        if(AXEwait(task[i]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i < 10; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -1648,7 +1735,7 @@ test_sufficient_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 10; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         task_data[i].mutex = NULL;
@@ -1671,24 +1758,29 @@ test_sufficient_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child tasks */
-    for(i = 1; i <= 9; i++)
-        if(AXEcreate_task(helper_data->engine, &task[i], 0, NULL, 1, &task[0], basic_task_worker,
+    for(i = 1; i <= 9; i++) {
+        if(AXEgenerate_task_id(helper_data->engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[i], 0, NULL, 1, &task[0], basic_task_worker,
                 &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Make sure the primary parent task has not yet completed, and the other
      * tasks have not been scheduled */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 1; i <= 9; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -1700,12 +1792,12 @@ test_sufficient_helper(size_t num_necessary_parents,
 
     /* Wait for tasks to complete */
     for(i = 1; i <= 9; i++)
-        if(AXEwait(task[i]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i < 10; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -1732,7 +1824,7 @@ test_sufficient_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 10; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         task_data[i].mutex = NULL;
@@ -1750,36 +1842,42 @@ test_sufficient_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create first parent task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second parent task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child task */
-    if(AXEcreate_task(helper_data->engine, &task[2], 1, &task[0], 1, &task[1],
+    if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[2], 1, &task[0], 1, &task[1],
             basic_task_worker, &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -1811,11 +1909,11 @@ test_sufficient_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -1855,12 +1953,13 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_barrier_helper(size_t num_necessary_parents,
+test_barrier_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
     AXE_task_t task[11];
     AXE_task_t parent_task[2];
     AXE_status_t status;
@@ -1886,8 +1985,14 @@ test_barrier_helper(size_t num_necessary_parents,
     /* Reserve threads for engine */
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
 
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     /* Create AXE engine */
-    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+    if(AXEset_num_threads(&engine_attr, helper_data->num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -1903,16 +2008,18 @@ test_barrier_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create barrier task */
-    if(AXEcreate_barrier_task(engine, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[0], basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -1932,7 +2039,7 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close task */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -1948,25 +2055,29 @@ test_barrier_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create first task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create barrier task */
-    if(AXEcreate_barrier_task(engine, &task[1], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[1], basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -1992,9 +2103,9 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -2010,34 +2121,40 @@ test_barrier_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create first task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create barrier task */
-    if(AXEcreate_barrier_task(engine, &task[1], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[1], basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child task */
-    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[1], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -2069,11 +2186,11 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -2089,30 +2206,38 @@ test_barrier_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child tasks */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[2], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create barrier task */
-    if(AXEcreate_barrier_task(engine, &task[3], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[3], basic_task_worker,
             &task_data[3], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[3]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[3]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i <= 3; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -2152,7 +2277,7 @@ test_barrier_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i <= 3; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
 
@@ -2173,31 +2298,39 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child tasks */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[2], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create barrier task */
-    if(AXEcreate_barrier_task(engine, &task[3], basic_task_worker,
-            &task_data[3], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[3], basic_task_worker, &task_data[3],
+            NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Make sure the parent task has not finished, and other tasks have not been
      * scheduled */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 0; i <= 3; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
@@ -2208,12 +2341,12 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[3]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[3]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i <= 3; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -2253,7 +2386,7 @@ test_barrier_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i <= 3; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         task_data[i].mutex = NULL;
@@ -2273,40 +2406,51 @@ test_barrier_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second-level child tasks */
-    for(i = 1; i <= 3; i++)
-        if(AXEcreate_task(engine, &task[i], 1, &task[0], 0, NULL,
+    for(i = 1; i <= 3; i++) {
+        if(AXEgenerate_task_id(engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, task[i], 1, &task[0], 0, NULL,
                 basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Create sufficient child task */
     parent_task[0] = task[0];
     parent_task[1] = task[2];
-    if(AXEcreate_task(engine, &task[4], 0, NULL, 2, parent_task,
+    if(AXEgenerate_task_id(engine, &task[4]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[4], 0, NULL, 2, parent_task,
             basic_task_worker, &task_data[4], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create first barrier task */
-    if(AXEcreate_barrier_task(engine, &task[5], basic_task_worker,
-            &task_data[5], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, &task[5]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[5], basic_task_worker, &task_data[5],
+            NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second barrier task */
-    if(AXEcreate_barrier_task(engine, &task[6], basic_task_worker,
-            &task_data[6], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, &task[6]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[6], basic_task_worker, &task_data[6],
+            NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[6]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[6]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i <= 6; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -2365,7 +2509,7 @@ test_barrier_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i <= 6; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
 
@@ -2386,41 +2530,52 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second-level child tasks */
-    for(i = 1; i <= 3; i++)
-        if(AXEcreate_task(engine, &task[i], 1, &task[0], 0, NULL,
+    for(i = 1; i <= 3; i++) {
+        if(AXEgenerate_task_id(engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, task[i], 1, &task[0], 0, NULL,
                 basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Create sufficient child task */
     parent_task[0] = task[0];
     parent_task[1] = task[2];
-    if(AXEcreate_task(engine, &task[4], 0, NULL, 2, parent_task,
+    if(AXEgenerate_task_id(engine, &task[4]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[4], 0, NULL, 2, parent_task,
             basic_task_worker, &task_data[4], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create first barrier task */
-    if(AXEcreate_barrier_task(engine, &task[5], basic_task_worker,
-            &task_data[5], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, &task[5]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[5], basic_task_worker, &task_data[5],
+            NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second barrier task */
-    if(AXEcreate_barrier_task(engine, &task[6], basic_task_worker,
-            &task_data[6], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, &task[6]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[6], basic_task_worker, &task_data[6],
+            NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Make sure the parent task has not finished, and other tasks have not been
      * scheduled */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 0; i <= 6; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
             TEST_ERROR;
@@ -2431,12 +2586,12 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[6]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[6]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i <= 6; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -2495,7 +2650,7 @@ test_barrier_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i <= 6; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         task_data[i].mutex = NULL;
@@ -2518,29 +2673,36 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create first parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create secondary parent tasks */
-    for(i = 1; i <= 9; i++)
-        if(AXEcreate_task(engine, &task[i], 1, &task[0], 0, NULL, basic_task_worker,
-                &task_data[i], NULL) != AXE_SUCCEED)
+    for(i = 1; i <= 9; i++) {
+        if(AXEgenerate_task_id(engine, &task[i]) != AXE_SUCCEED)
             TEST_ERROR;
+        if(AXEcreate_task(engine, task[i], 1, &task[0], 0, NULL,
+                basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+    } /* end for */
 
     /* Create barrier task */
-    if(AXEcreate_barrier_task(engine, &task[10], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[10]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, task[10], basic_task_worker,
             &task_data[10], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Make sure the primary parent task has not yet completed, and the other
      * tasks have not been scheduled */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status == AXE_TASK_DONE) || (status == AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 1; i <= 10; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_WAITING_FOR_PARENT)
             TEST_ERROR;
@@ -2551,12 +2713,12 @@ test_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[10]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[10]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i < 11; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_DONE)
             TEST_ERROR;
@@ -2589,7 +2751,7 @@ test_barrier_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 11; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         task_data[i].mutex = NULL;
@@ -2606,6 +2768,10 @@ test_barrier_helper(size_t num_necessary_parents,
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
 
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     /* Destroy mutex */
     if(0 != pthread_mutex_destroy(&mutex1))
         TEST_ERROR;
@@ -2617,6 +2783,8 @@ test_barrier_helper(size_t num_necessary_parents,
 error:
     (void)AXEterminate_engine(engine, FALSE);
     MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+
+    (void)AXEengine_attr_destroy(&engine_attr);
 
     (void)pthread_mutex_destroy(&mutex1);
 
@@ -2639,7 +2807,7 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_get_op_data_helper(size_t num_necessary_parents,
+test_get_op_data_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
@@ -2670,28 +2838,30 @@ test_get_op_data_helper(size_t num_necessary_parents,
     task_data.run_order = -1;
 
     /* Create barrier task */
-    if(AXEcreate_task(helper_data->engine, &task, 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task, 0, NULL, 0, NULL, basic_task_worker,
             &task_data, NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Check that op_data returned is task_data */
-    if(AXEget_op_data(task, &op_data) != AXE_SUCCEED)
+    if(AXEget_op_data(helper_data->engine, task, &op_data) != AXE_SUCCEED)
         TEST_ERROR;
     if(op_data != (void *)&task_data)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Check that op_data returned is task_data */
-    if(AXEget_op_data(task, &op_data) != AXE_SUCCEED)
+    if(AXEget_op_data(helper_data->engine, task, &op_data) != AXE_SUCCEED)
         TEST_ERROR;
     if(op_data != (void *)&task_data)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task, &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task, &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -2707,7 +2877,7 @@ test_get_op_data_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close task */
-    if(AXEfinish(task) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task) != AXE_SUCCEED)
         TEST_ERROR;
 
     /*
@@ -2737,7 +2907,7 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_finish_all_helper(size_t num_necessary_parents,
+test_finish_all_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
@@ -2762,7 +2932,7 @@ test_finish_all_helper(size_t num_necessary_parents,
     /*
      * Test 1: No tasks
      */
-    if(AXEfinish_all(0, NULL) != AXE_SUCCEED)
+    if(AXEfinish_all(helper_data->engine, 0, NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -2778,25 +2948,29 @@ test_finish_all_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create tasks */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -2815,11 +2989,10 @@ test_finish_all_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish_all(2, task) != AXE_SUCCEED)
+    if(AXEfinish_all(helper_data->engine, 2, task) != AXE_SUCCEED)
         TEST_ERROR;
 
-    /* If we ever move to a more robust identifier system or add a way to
-     * manipulate and retrieve a task's reference count, we should make sure
+    /* Rely on AXE_test_exclude_close_on() in calling function to make sure
      * AXEfinish_all() actually closed the tasks here */
 
 
@@ -2910,7 +3083,7 @@ free_op_data_worker(void *_task_data)
 
 /* Main test helper function */
 void
-test_free_op_data_helper(size_t num_necessary_parents,
+test_free_op_data_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
@@ -2935,12 +3108,14 @@ test_free_op_data_helper(size_t num_necessary_parents,
     task_data[0]->failed = 0;
 
     /* Create simple task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, NULL, task_data[0],
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, NULL, task_data[0],
             free_op_data_worker) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify free_op_data has been called the correct number of times */
@@ -2948,7 +3123,7 @@ test_free_op_data_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close task */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for condition signal so we know the free_op_data callback has been
@@ -2988,22 +3163,28 @@ test_free_op_data_helper(size_t num_necessary_parents,
     } /* end for */
 
     /* Create tasks */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, NULL, task_data[0],
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, NULL, task_data[0],
             free_op_data_worker) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, NULL, task_data[1],
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, NULL, task_data[1],
             free_op_data_worker) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(helper_data->engine, &task[2], 0, NULL, 0, NULL, NULL, task_data[2],
+    if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[2], 0, NULL, 0, NULL, NULL, task_data[2],
             free_op_data_worker) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify free_op_data has been called the correct number of times */
@@ -3015,11 +3196,11 @@ test_free_op_data_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[2]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for condition signal so we know the free_op_data callback has been
@@ -3072,22 +3253,28 @@ test_free_op_data_helper(size_t num_necessary_parents,
         } /* end for */
 
         /* Create tasks */
-        if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, NULL, task_data[0],
+        if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, NULL, task_data[0],
                 free_op_data_worker) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 0, NULL, NULL, task_data[1],
+        if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 0, NULL, NULL, task_data[1],
                 free_op_data_worker) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEcreate_barrier_task(helper_data->engine, &task[2], NULL, task_data[2],
+        if(AXEgenerate_task_id(helper_data->engine, &task[2]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_barrier_task(helper_data->engine, task[2], NULL, task_data[2],
                 free_op_data_worker) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Wait for tasks to complete */
-        if(AXEwait(task[0]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEwait(task[1]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[1]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEwait(task[2]) != AXE_SUCCEED)
+        if(AXEwait(helper_data->engine, task[2]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Verify free_op_data has been called the correct number of times */
@@ -3099,11 +3286,11 @@ test_free_op_data_helper(size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Close tasks */
-        if(AXEfinish(task[0]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEfinish(task[1]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
             TEST_ERROR;
-        if(AXEfinish(task[2]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[2]) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Wait for condition signal so we know the free_op_data callback has been
@@ -3164,9 +3351,9 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
-    size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
-    void *_helper_data)
+test_remove_helper(AXE_engine_t engine, size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_task_t task[2];
@@ -3218,7 +3405,9 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Create task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -3232,13 +3421,13 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Try to remove the task.  Should return AXE_NOT_CANCELED. */
-    if(AXEremove(task[0], &remove_status) != AXE_SUCCEED)
+    if(AXEremove(helper_data->engine, task[0], &remove_status) != AXE_SUCCEED)
         TEST_ERROR;
     if(remove_status != AXE_NOT_CANCELED)
         TEST_ERROR;
 
     /* Verify task status is AXE_TASK_RUNNING */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_RUNNING)
         TEST_ERROR;
@@ -3248,17 +3437,17 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Wait for task to complete */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Try to remove the task.  Should return AXE_ALL_DONE. */
-    if(AXEremove(task[0], &remove_status) != AXE_SUCCEED)
+    if(AXEremove(helper_data->engine, task[0], &remove_status) != AXE_SUCCEED)
         TEST_ERROR;
     if(remove_status != AXE_ALL_DONE)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -3278,7 +3467,7 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Close task */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
         task_data[i].mutex = NULL;
@@ -3308,12 +3497,16 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Create first task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -3327,11 +3520,11 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Verify task statuses */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_RUNNING)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_WAITING_FOR_PARENT)
         TEST_ERROR;
@@ -3339,13 +3532,13 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
     /* Try to remove the first task.  Should fail. */
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+    if(AXEremove(helper_data->engine, task[0], &remove_status) != AXE_FAIL)
         TEST_ERROR;
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Remove the second task.  Should return AXE_CANCELED. */
-    if(AXEremove(task[1], &remove_status) != AXE_SUCCEED)
+    if(AXEremove(helper_data->engine, task[1], &remove_status) != AXE_SUCCEED)
         TEST_ERROR;
     if(remove_status != AXE_CANCELED)
         TEST_ERROR;
@@ -3356,11 +3549,11 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
 
     /* Wait for tasks to complete.  Include wait on canceled task to make sure
      * wait correctly returns failure for canceled task. */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) != AXE_FAIL)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_FAIL)
         TEST_ERROR;
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
@@ -3368,17 +3561,17 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
     /* Try againto remove the first task.  Should still fail. */
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+    if(AXEremove(helper_data->engine, task[0], &remove_status) != AXE_FAIL)
         TEST_ERROR;
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_CANCELED)
         TEST_ERROR;
@@ -3398,9 +3591,9 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -3425,12 +3618,16 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Create first task */
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create second task */
-    if(AXEcreate_task(helper_data->engine, &task[1], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(helper_data->engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[1], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -3444,11 +3641,11 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Verify task statuses */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_RUNNING)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_WAITING_FOR_PARENT)
         TEST_ERROR;
@@ -3456,13 +3653,13 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
     /* Try to remove the first task.  Should fail. */
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+    if(AXEremove(helper_data->engine, task[0], &remove_status) != AXE_FAIL)
         TEST_ERROR;
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Remove the second task.  Should return AXE_CANCELED. */
-    if(AXEremove(task[1], &remove_status) != AXE_SUCCEED)
+    if(AXEremove(helper_data->engine, task[1], &remove_status) != AXE_SUCCEED)
         TEST_ERROR;
     if(remove_status != AXE_CANCELED)
         TEST_ERROR;
@@ -3473,11 +3670,11 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
 
     /* Wait for tasks to complete.  Include wait on canceled task to make sure
      * wait correctly returns failure for canceled task. */
-    if(AXEwait(task[0]) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[1]) != AXE_FAIL)
+    if(AXEwait(helper_data->engine, task[1]) != AXE_FAIL)
         TEST_ERROR;
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
@@ -3485,17 +3682,17 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
     /* Try again to remove the first task.  Should still fail. */
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEremove(task[0], &remove_status) != AXE_FAIL)
+    if(AXEremove(helper_data->engine, task[0], &remove_status) != AXE_FAIL)
         TEST_ERROR;
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(helper_data->engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_CANCELED)
         TEST_ERROR;
@@ -3515,9 +3712,9 @@ test_remove_helper(size_t num_necessary_parents, AXE_task_t necessary_parents[],
         TEST_ERROR;
 
     /* Close tasks */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -3560,12 +3757,13 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_remove_all_helper(size_t num_necessary_parents,
+test_remove_all_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
     AXE_task_t task[4];
     AXE_status_t status;
     AXE_remove_status_t remove_status;
@@ -3595,9 +3793,15 @@ test_remove_all_helper(size_t num_necessary_parents,
 
     /* Reserve threads for engine */
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
+    
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
 
     /* Create AXE engine */
-    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+    if(AXEset_num_threads(&engine_attr, helper_data->num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -3624,18 +3828,26 @@ test_remove_all_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create children */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[1], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[3], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -3652,17 +3864,17 @@ test_remove_all_helper(size_t num_necessary_parents,
     /* Wait for parent task to complete (may fail if task was canceled) */
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    (void)AXEwait(task[0]);
+    (void)AXEwait(engine, task[0]);
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify children are canceled and parent is either canceled or done */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 1; i <= 3; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_CANCELED)
             TEST_ERROR;
@@ -3675,12 +3887,12 @@ test_remove_all_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
         TEST_ERROR;
     for(i = 1; i <= 3; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(status != AXE_TASK_CANCELED)
             TEST_ERROR;
@@ -3696,7 +3908,7 @@ test_remove_all_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 4; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
         task_data[i].mutex = NULL;
@@ -3726,18 +3938,26 @@ test_remove_all_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create children */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[1], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[3], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -3758,19 +3978,19 @@ test_remove_all_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Verify statuses */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_RUNNING)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_CANCELED)
         TEST_ERROR;
-    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[3], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED)
             && (status != AXE_TASK_RUNNING))
@@ -3782,28 +4002,28 @@ test_remove_all_helper(size_t num_necessary_parents,
 
     /* Wait for the child tasks to complete (sufficient child may fail if
      * it was canceled) */
-    if(AXEwait(task[1]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
-    (void)AXEwait(task[3]);
+    (void)AXEwait(engine, task[3]);
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify statuses */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_CANCELED)
         TEST_ERROR;
-    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[3], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
         TEST_ERROR;
@@ -3815,19 +4035,19 @@ test_remove_all_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_CANCELED)
         TEST_ERROR;
-    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[3], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if((status != AXE_TASK_DONE) && (status != AXE_TASK_CANCELED))
         TEST_ERROR;
@@ -3856,7 +4076,7 @@ test_remove_all_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 4; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
         task_data[i].mutex = NULL;
@@ -3879,41 +4099,49 @@ test_remove_all_helper(size_t num_necessary_parents,
     } /* end for */
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create children */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[1], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[3], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for the child tasks to complete  */
-    if(AXEwait(task[2]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[2]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEwait(task[3]) != AXE_SUCCEED)
+    if(AXEwait(engine, task[3]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Verify statuses */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[3], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -3925,19 +4153,19 @@ test_remove_all_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Verify results */
-    if(AXEget_status(task[0], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[0], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[1], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[1], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[2], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[2], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
-    if(AXEget_status(task[3], &status) != AXE_SUCCEED)
+    if(AXEget_status(engine, task[3], &status) != AXE_SUCCEED)
         TEST_ERROR;
     if(status != AXE_TASK_DONE)
         TEST_ERROR;
@@ -3973,7 +4201,7 @@ test_remove_all_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i < 4; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
 
@@ -3987,6 +4215,10 @@ test_remove_all_helper(size_t num_necessary_parents,
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
+
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
 
     /* Destroy mutexes and condition variables */
     if(0 != pthread_mutex_destroy(&mutex))
@@ -4003,6 +4235,8 @@ test_remove_all_helper(size_t num_necessary_parents,
 error:
     (void)AXEterminate_engine(engine, FALSE);
     MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+
+    (void)AXEengine_attr_destroy(&engine_attr);
 
     (void)pthread_mutex_destroy(&mutex);
     (void)pthread_cond_destroy(&cond);
@@ -4028,12 +4262,13 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_terminate_engine_helper(size_t num_necessary_parents,
+test_terminate_engine_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
     _Bool engine_init = FALSE;
     AXE_task_t task[4];
     basic_task_t task_data[4];
@@ -4049,6 +4284,14 @@ test_terminate_engine_helper(size_t num_necessary_parents,
         task_data[i].cond_mutex = NULL;
     } /* end for */
 
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Set number of threads on engine attribute */
+    if(AXEset_num_threads(&engine_attr, helper_data->num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+
 
     /*
      * All tests have a configuration of one parent with one two-task chain of
@@ -4061,7 +4304,7 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
 
     /* Create AXE engine */
-    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = TRUE;
 
@@ -4074,18 +4317,26 @@ test_terminate_engine_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create children */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[1], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[3], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -4136,7 +4387,7 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
 
     /* Create AXE engine */
-    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = TRUE;
 
@@ -4149,18 +4400,26 @@ test_terminate_engine_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create children */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[2], 1, &task[1], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[1], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, &task[3], 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[3], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -4229,7 +4488,7 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
 
     /* Create AXE engine */
-    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = TRUE;
 
@@ -4242,26 +4501,38 @@ test_terminate_engine_helper(size_t num_necessary_parents,
         task_data[i].run_order = -1;
 
     /* Create parent task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create children */
-    if(AXEcreate_task(engine, &task[1], 1, &task[0], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[1], 1, &task[0], 0, NULL, basic_task_worker,
             &task_data[1], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, NULL, 1, &task[1], 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[2], 1, &task[1], 0, NULL, basic_task_worker,
             &task_data[2], NULL) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEcreate_task(engine, NULL, 0, NULL, 1, &task[0], basic_task_worker,
+    if(AXEfinish(engine, task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 1, &task[0], basic_task_worker,
             &task_data[3], NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task[3]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Close handles so we can test that all tasks are internally closed and
      * freed */
-    if(AXEfinish(task[0]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[0]) != AXE_SUCCEED)
         TEST_ERROR;
-    if(AXEfinish(task[1]) != AXE_SUCCEED)
+    if(AXEfinish(engine, task[1]) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Terminate engine, with wait_all set to TRUE */
@@ -4308,6 +4579,10 @@ test_terminate_engine_helper(size_t num_necessary_parents,
     /*
      * Close
      */
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     OPA_incr_int(&helper_data->ncomplete);
 
     return;
@@ -4317,6 +4592,8 @@ error:
         (void)AXEterminate_engine(engine, FALSE);
         MAX_NTHREADS_RELEASE(helper_data->num_threads, );
     } /* end if */
+
+    (void)AXEengine_attr_destroy(&engine_attr);
 
     OPA_incr_int(&helper_data->nfailed);
 
@@ -4338,12 +4615,13 @@ error:
  *-------------------------------------------------------------------------
  */
 void
-test_num_threads_helper(size_t num_necessary_parents,
+test_num_threads_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
     AXE_task_t task[5];
     AXE_status_t status;
     AXE_remove_status_t remove_status;
@@ -4379,8 +4657,14 @@ test_num_threads_helper(size_t num_necessary_parents,
     /* Reserve threads for engine */
     MAX_NTHREADS_RESERVE(2, TEST_ERROR);
 
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     /* Create AXE engine with 2 threads */
-    if(AXEcreate_engine(2, &engine) != AXE_SUCCEED)
+    if(AXEset_num_threads(&engine_attr, 2) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
 
 
@@ -4407,10 +4691,13 @@ test_num_threads_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create tasks */
-    for(i = 0; i <= 3; i++)
-        if(AXEcreate_task(engine, &task[i], 0, NULL, 0, NULL, basic_task_worker,
+    for(i = 0; i <= 3; i++) {
+        if(AXEgenerate_task_id(engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, task[i], 0, NULL, 0, NULL, basic_task_worker,
                 &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Repeatedly scan task_data array and wait for signal until 2 tasks are
      * executing.  Do so while holding condition mutex so cond_signal_sent field
@@ -4422,7 +4709,7 @@ test_num_threads_helper(size_t num_necessary_parents,
         nrunning = 0;
         for(i = 0; i <= 3; i++) {
             /* Make sure if the signal was sent the task is running */
-            AXEget_status(task[i], &status);
+            AXEget_status(engine, task[i], &status);
             if(task_data[i].cond_signal_sent != 0) {
                 if(status != AXE_TASK_RUNNING)
                     TEST_ERROR;
@@ -4457,7 +4744,7 @@ test_num_threads_helper(size_t num_necessary_parents,
     sched_i = -1;
     for(i = 0; i <= 3; i++) {
         /* Make sure if the signal was sent the task is running */
-        AXEget_status(task[i], &status);
+        AXEget_status(engine, task[i], &status);
         if(task_data[i].cond_signal_sent != 0) {
             if(status != AXE_TASK_RUNNING)
                 TEST_ERROR;
@@ -4475,7 +4762,7 @@ test_num_threads_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Remove the scheduled task */
-    if(AXEremove(task[sched_i], &remove_status) != AXE_SUCCEED)
+    if(AXEremove(engine, task[sched_i], &remove_status) != AXE_SUCCEED)
         TEST_ERROR;
     if(remove_status != AXE_CANCELED)
         TEST_ERROR;
@@ -4487,12 +4774,12 @@ test_num_threads_helper(size_t num_necessary_parents,
     /* Wait for tasks to complete */
     for(i = 0; i <= 3; i++)
         if(i != sched_i)
-            if(AXEwait(task[i]) != AXE_SUCCEED)
+            if(AXEwait(engine, task[i]) != AXE_SUCCEED)
                 TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i <= 3; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(i == sched_i) {
             if(status != AXE_TASK_CANCELED)
@@ -4524,7 +4811,7 @@ test_num_threads_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i <= 3; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
 
@@ -4555,15 +4842,20 @@ test_num_threads_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create first task */
-    if(AXEcreate_task(engine, &task[0], 0, NULL, 0, NULL, basic_task_worker,
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, basic_task_worker,
             &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Create child tasks */
-    for(i = 1; i <= 4; i++)
-        if(AXEcreate_task(engine, &task[i], 1, &task[0], 0, NULL,
+    for(i = 1; i <= 4; i++) {
+        if(AXEgenerate_task_id(engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, task[i], 1, &task[0], 0, NULL,
                 basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
             TEST_ERROR;
+    } /* end for */
 
     /* Wait for condition signal so we know the parent task is in progress */
     if(0 != pthread_mutex_lock(&cond_mutex))
@@ -4588,7 +4880,7 @@ test_num_threads_helper(size_t num_necessary_parents,
         nrunning = 0;
         for(i = 1; i <= 4; i++) {
             /* Make sure if the signal was sent the task is running */
-            AXEget_status(task[i], &status);
+            AXEget_status(engine, task[i], &status);
             if(task_data[i].cond_signal_sent != 0) {
                 if(status != AXE_TASK_RUNNING)
                     TEST_ERROR;
@@ -4623,7 +4915,7 @@ test_num_threads_helper(size_t num_necessary_parents,
     sched_i = -1;
     for(i = 1; i <= 4; i++) {
         /* Make sure if the signal was sent the task is running */
-        AXEget_status(task[i], &status);
+        AXEget_status(engine, task[i], &status);
         if(task_data[i].cond_signal_sent != 0) {
             if(status != AXE_TASK_RUNNING)
                 TEST_ERROR;
@@ -4641,7 +4933,7 @@ test_num_threads_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Remove the scheduled task */
-    if(AXEremove(task[sched_i], &remove_status) != AXE_SUCCEED)
+    if(AXEremove(engine, task[sched_i], &remove_status) != AXE_SUCCEED)
         TEST_ERROR;
     if(remove_status != AXE_CANCELED)
         TEST_ERROR;
@@ -4653,12 +4945,12 @@ test_num_threads_helper(size_t num_necessary_parents,
     /* Wait for tasks to complete */
     for(i = 1; i <= 4; i++)
         if(i != sched_i)
-            if(AXEwait(task[i]) != AXE_SUCCEED)
+            if(AXEwait(engine, task[i]) != AXE_SUCCEED)
                 TEST_ERROR;
 
     /* Verify results */
     for(i = 0; i <= 4; i++) {
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(i == sched_i) {
             if(status != AXE_TASK_CANCELED)
@@ -4696,7 +4988,7 @@ test_num_threads_helper(size_t num_necessary_parents,
 
     /* Close tasks */
     for(i = 0; i <= 4; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
 
 
@@ -4710,6 +5002,10 @@ test_num_threads_helper(size_t num_necessary_parents,
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(2, TEST_ERROR);
+
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
 
     /* Destroy mutexes and condition variables */
     if(0 != pthread_mutex_destroy(&mutex1))
@@ -4728,6 +5024,8 @@ test_num_threads_helper(size_t num_necessary_parents,
 error:
     (void)AXEterminate_engine(engine, FALSE);
     MAX_NTHREADS_RELEASE(2, );
+
+    (void)AXEengine_attr_destroy(&engine_attr);
 
     (void)pthread_mutex_destroy(&mutex1);
     (void)pthread_mutex_destroy(&mutex2);
@@ -4756,7 +5054,6 @@ error:
  */
 /* Data shared between all tasks */
 typedef struct fractal_task_shared_t {
-    AXE_engine_t engine;        /* Engine tasks are placed in */
     OPA_int_t num_tasks_left_start; /* Number of tasks left to create */
     OPA_int_t num_tasks_left_end; /* Number of tasks left to finish */
     pthread_cond_t cond;        /* Condition variable for signaling main thread when all tasks are complete */
@@ -4775,7 +5072,7 @@ typedef struct fractal_task_t {
 /* Task worker function.  Creates children if there are more tasks to create and
  * sends signal if this was the last task to complete */
 void
-fractal_task_worker(size_t num_necessary_parents,
+fractal_task_worker(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
@@ -4792,7 +5089,7 @@ fractal_task_worker(size_t num_necessary_parents,
 
     /* Decrement ref counts on parent arrays, as required */
     if(num_necessary_parents == 1) {
-        if(AXEfinish(necessary_parents[0]) != AXE_SUCCEED)
+        if(AXEfinish(engine, necessary_parents[0]) != AXE_SUCCEED)
             task_data->failed = 1;
     } /* end if */
 
@@ -4817,16 +5114,18 @@ fractal_task_worker(size_t num_necessary_parents,
             task_data->child[i]->failed = 0;
 
             /* Create task */
-            if(AXEcreate_task(task_data->shared->engine,
-                    &task_data->child[i]->this_task, 1, &task_data->this_task,
-                    0, NULL, fractal_task_worker, task_data->child[i], NULL)
+            if(AXEgenerate_task_id(engine, &task_data->child[i]->this_task)
                     != AXE_SUCCEED)
+                task_data->failed = 1;
+            if(AXEcreate_task(engine, task_data->child[i]->this_task, 1,
+                    &task_data->this_task, 0, NULL, fractal_task_worker,
+                    task_data->child[i], NULL) != AXE_SUCCEED)
                 task_data->failed = 1;
         } /* end else */
     } /* end for */
 
     /* Close this task */
-    if(AXEfinish(task_data->this_task) != AXE_SUCCEED)
+    if(AXEfinish(engine, task_data->this_task) != AXE_SUCCEED)
         task_data->failed = 1;
 
     /* Decrement and test the number of tasks left to finish.  If this was the
@@ -4877,7 +5176,7 @@ fractal_verify_free(fractal_task_t *task_data, int *num_tasks)
 
 /* Main test helper function */
 void
-test_fractal_helper(size_t num_necessary_parents,
+test_fractal_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
@@ -4888,7 +5187,6 @@ test_fractal_helper(size_t num_necessary_parents,
     int i;
 
     /* Initialize shared task data struct */
-    shared_task_data.engine = helper_data->engine;
     OPA_store_int(&shared_task_data.num_tasks_left_start, FRACTAL_NTASKS);
     OPA_store_int(&shared_task_data.num_tasks_left_end, FRACTAL_NTASKS);
     if(0 != pthread_cond_init(&shared_task_data.cond, NULL))
@@ -4906,7 +5204,9 @@ test_fractal_helper(size_t num_necessary_parents,
 
     /* Create parent task */
     OPA_decr_int(&shared_task_data.num_tasks_left_start);
-    if(AXEcreate_task(helper_data->engine, &parent_task_data->this_task, 0, NULL, 0, NULL,
+    if(AXEgenerate_task_id(helper_data->engine, &parent_task_data->this_task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, parent_task_data->this_task, 0, NULL, 0, NULL,
             fractal_task_worker, parent_task_data, NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -4970,7 +5270,6 @@ error:
  */
 /* Data shared between all tasks */
 typedef struct fractal_nodep_task_t {
-    AXE_engine_t engine;        /* Engine tasks are placed in */
     OPA_int_t num_tasks_left_start; /* Number of tasks left to create */
     OPA_int_t num_tasks_left_end; /* Number of tasks left to finish */
     OPA_int_t failed;           /* Number of failures */
@@ -4982,11 +5281,12 @@ typedef struct fractal_nodep_task_t {
 /* Task worker function.  Creates children if there are more tasks to create and
  * sends signal if this was the last task to complete */
 void
-fractal_nodep_task_worker(size_t num_necessary_parents,
+fractal_nodep_task_worker(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
     fractal_nodep_task_t *task_data = (fractal_nodep_task_t *)_task_data;
+    AXE_task_t tmp_task;
     int i;
 
     assert(task_data);
@@ -5006,8 +5306,12 @@ fractal_nodep_task_worker(size_t num_necessary_parents,
         } /* end if */
         else {
             /* Create child task */
-            if(AXEcreate_task(task_data->engine, NULL, 0, NULL, 0, NULL,
+            if(AXEgenerate_task_id(engine, &tmp_task) != AXE_SUCCEED)
+                OPA_incr_int(&task_data->failed);
+            if(AXEcreate_task(engine, tmp_task, 0, NULL, 0, NULL,
                     fractal_nodep_task_worker, task_data, NULL) != AXE_SUCCEED)
+                OPA_incr_int(&task_data->failed);
+            if(AXEfinish(engine, tmp_task) != AXE_SUCCEED)
                 OPA_incr_int(&task_data->failed);
         } /* end else */
     } /* end for */
@@ -5031,15 +5335,15 @@ fractal_nodep_task_worker(size_t num_necessary_parents,
 
 /* Main test helper function */
 void
-test_fractal_nodep_helper(size_t num_necessary_parents,
+test_fractal_nodep_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     fractal_nodep_task_t task_data;
+    AXE_task_t tmp_task;
 
     /* Initialize shared task data struct */
-    task_data.engine = helper_data->engine;
     OPA_store_int(&task_data.num_tasks_left_start, FRACTAL_NODEP_NTASKS);
     OPA_store_int(&task_data.num_tasks_left_end, FRACTAL_NODEP_NTASKS);
     OPA_store_int(&task_data.failed, 0);
@@ -5050,8 +5354,12 @@ test_fractal_nodep_helper(size_t num_necessary_parents,
 
     /* Create parent task */
     OPA_decr_int(&task_data.num_tasks_left_start);
-    if(AXEcreate_task(helper_data->engine, NULL, 0, NULL, 0, NULL,
+    if(AXEgenerate_task_id(helper_data->engine, &tmp_task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, tmp_task, 0, NULL, 0, NULL,
             fractal_nodep_task_worker, &task_data, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(helper_data->engine, tmp_task) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for condition signal that all tasks finished */
@@ -5119,7 +5427,7 @@ typedef struct create_remove_shared_t {
 
 /* Secondary helper function.  Constantly tries to remove */
 void
-create_remove_remove_helper(size_t num_necessary_parents,
+create_remove_remove_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
@@ -5134,7 +5442,7 @@ create_remove_remove_helper(size_t num_necessary_parents,
         /* Try to cancel the child task */
         if(AXEbegin_try() != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
-        ret = AXEremove(*(AXE_task_t *)OPA_load_ptr(&helper_data->child_task), &remove_status);
+        ret = AXEremove(engine, *(AXE_task_t *)OPA_load_ptr(&helper_data->child_task), &remove_status);
         if(AXEend_try() != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
 
@@ -5153,7 +5461,7 @@ create_remove_remove_helper(size_t num_necessary_parents,
 
 /* Main test helper function */
 void
-test_create_remove_helper(size_t num_necessary_parents,
+test_create_remove_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
@@ -5196,12 +5504,16 @@ test_create_remove_helper(size_t num_necessary_parents,
     task_data[0].cond = NULL;
     task_data[0].cond_mutex = NULL;
     task_data[0].cond_signal_sent = 0;
-    if(AXEcreate_task(helper_data->engine, &task[0], 0, NULL, 0, NULL, basic_task_worker, &task_data[0], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(helper_data->engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, task[0], 0, NULL, 0, NULL, basic_task_worker, &task_data[0], NULL) != AXE_SUCCEED)
         TEST_ERROR;
     OPA_store_ptr(&int_helper_data.child_task, &task[0]);
 
     /* Launch remove helper */
-    if(AXEcreate_task(helper_data->engine, &remove_helper_task, 0, NULL, 0, NULL, create_remove_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(helper_data->engine, &remove_helper_task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(helper_data->engine, remove_helper_task, 0, NULL, 0, NULL, create_remove_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Launch CREATE_REMOVE_NTASKS tasks, keeping int_helper_data.child_task up
@@ -5219,14 +5531,18 @@ test_create_remove_helper(size_t num_necessary_parents,
         /* Try to launch task with parent.  If it fails (due to parent being
          * canceled), launch without parent.  Use cond_signal_sent field to keep
          * track of which tasks have no parents (1 == no parent). */
+        if(AXEgenerate_task_id(helper_data->engine, &task[i]) != AXE_SUCCEED)
+            TEST_ERROR;
         if(AXEbegin_try() != AXE_SUCCEED)
             TEST_ERROR;
-        ret = AXEcreate_task(helper_data->engine, &task[i], 1, &task[i - 1], 0, NULL, basic_task_worker, &task_data[i], NULL);
+        ret = AXEcreate_task(helper_data->engine, task[i], 1, &task[i - 1], 0, NULL, basic_task_worker, &task_data[i], NULL);
         if(AXEend_try() != AXE_SUCCEED)
             TEST_ERROR;
         if(ret != AXE_SUCCEED) {
             task_data[i].cond_signal_sent = 1;
-            if(AXEcreate_task(helper_data->engine, &task[i], 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(helper_data->engine, &task[i]) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(helper_data->engine, task[i], 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
                 TEST_ERROR;
         } /* end if */
 
@@ -5239,12 +5555,12 @@ test_create_remove_helper(size_t num_necessary_parents,
 
     /* Wait for tasks and remove helper to complete.  Note task may be canceled.
      */
-    if(AXEwait(remove_helper_task) != AXE_SUCCEED)
+    if(AXEwait(helper_data->engine, remove_helper_task) != AXE_SUCCEED)
         TEST_ERROR;
     if(AXEbegin_try() != AXE_SUCCEED)
         TEST_ERROR;
     for(i = 0; i < CREATE_REMOVE_NTASKS; i++)
-        (void)AXEwait(task[i]);
+        (void)AXEwait(helper_data->engine, task[i]);
     if(AXEend_try() != AXE_SUCCEED)
         TEST_ERROR;
 
@@ -5269,7 +5585,7 @@ test_create_remove_helper(size_t num_necessary_parents,
     for(i = 0; i < CREATE_REMOVE_NTASKS; i++) {
         if(task_data[i].failed != 0)
             TEST_ERROR;
-        if(AXEget_status(task[i], &status) != AXE_SUCCEED)
+        if(AXEget_status(helper_data->engine, task[i], &status) != AXE_SUCCEED)
             TEST_ERROR;
         if(task_data[i].run_order == -1) {
             if(status != AXE_TASK_CANCELED)
@@ -5300,9 +5616,9 @@ test_create_remove_helper(size_t num_necessary_parents,
      * Close
      */
     for(i = 0; i < CREATE_REMOVE_NTASKS; i++)
-        if(AXEfinish(task[i]) != AXE_SUCCEED)
+        if(AXEfinish(helper_data->engine, task[i]) != AXE_SUCCEED)
             TEST_ERROR;
-    if(AXEfinish(remove_helper_task) != AXE_SUCCEED)
+    if(AXEfinish(helper_data->engine, remove_helper_task) != AXE_SUCCEED)
         TEST_ERROR;
     free(task_data);
     free(task);
@@ -5313,7 +5629,7 @@ test_create_remove_helper(size_t num_necessary_parents,
 
 error:
     OPA_incr_int(&helper_data->nfailed);
-
+assert(0);
     return;
 } /* end test_create_remove_helper() */
 
@@ -5334,7 +5650,6 @@ error:
  */
 /* Data shared between all remove helper tasks */
 typedef struct create_remove_all_shared_t {
-    AXE_engine_t engine;        /* Engine containing tasks to be removed */
     int num_creates;            /* Number of tasks created */
     pthread_cond_t create_cond; /* Condition variable signaled whenever a task is created */
     pthread_mutex_t create_cond_mutex; /* Mutex associated with create_cond */
@@ -5345,9 +5660,10 @@ typedef struct create_remove_all_shared_t {
 
 /* Secondary helper function.  Constantly tries to remove */
 void
-create_remove_all_remove_helper(size_t num_necessary_parents,
-    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
-    AXE_task_t sufficient_parents[], void *_task_data)
+create_remove_all_remove_helper(AXE_engine_t engine,
+    size_t num_necessary_parents, AXE_task_t necessary_parents[],
+    size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
+    void *_task_data)
 {
     create_remove_all_shared_t *helper_data = (create_remove_all_shared_t *)_task_data;
     int num_removes = 0;
@@ -5357,7 +5673,7 @@ create_remove_all_remove_helper(size_t num_necessary_parents,
     /* Loop until told to shut dbown */
     while(!helper_data->shutdown) {
         /* Cancel all tasks */
-        if(AXEremove_all(helper_data->engine, NULL) != AXE_SUCCEED)
+        if(AXEremove_all(engine, NULL) != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
         num_removes++;
 
@@ -5383,12 +5699,14 @@ create_remove_all_remove_helper(size_t num_necessary_parents,
 
 /* Main test helper function */
 void
-test_create_remove_all_helper(size_t num_necessary_parents,
-    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
-    AXE_task_t sufficient_parents[], void *_helper_data)
+test_create_remove_all_helper(AXE_engine_t _engine,
+    size_t num_necessary_parents, AXE_task_t necessary_parents[],
+    size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
+    void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
     _Bool engine_init = FALSE;
     create_remove_all_shared_t int_helper_data;
     basic_task_t *task_data = NULL;
@@ -5403,13 +5721,18 @@ test_create_remove_all_helper(size_t num_necessary_parents,
     /* Reserve threads for engine */
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
 
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     /* Create AXE engine */
-    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+    if(AXEset_num_threads(&engine_attr, helper_data->num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = TRUE;
 
     /* Initialize int_helper_data */
-    int_helper_data.engine = engine;
     int_helper_data.num_creates = 0;
     if(0 != pthread_cond_init(&int_helper_data.create_cond, NULL))
         TEST_ERROR;
@@ -5427,7 +5750,11 @@ test_create_remove_all_helper(size_t num_necessary_parents,
     OPA_store_int(&shared_task_data.ncalls, 0);
 
     /* Launch remove helper */
-    if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, create_remove_all_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task, 0, NULL, 0, NULL, create_remove_all_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Launch CREATE_REMOVE_ALL_NTASKS tasks */
@@ -5451,14 +5778,16 @@ test_create_remove_all_helper(size_t num_necessary_parents,
             ret = AXE_FAIL;
         else {
             /* Create task with parent.  May fail. */
+            if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
+                TEST_ERROR;
             if(AXEbegin_try() != AXE_SUCCEED)
                 TEST_ERROR;
-            ret = AXEcreate_task(engine, &task, 1, &parent_task, 0, NULL, basic_task_worker, &task_data[i], NULL);
+            ret = AXEcreate_task(engine, task, 1, &parent_task, 0, NULL, basic_task_worker, &task_data[i], NULL);
             if(AXEend_try() != AXE_SUCCEED)
                 TEST_ERROR;
 
             /* Close parent task */
-            if(AXEfinish(parent_task) != AXE_SUCCEED)
+            if(AXEfinish(engine, parent_task) != AXE_SUCCEED)
                 TEST_ERROR;
         } /* end else */
         if(ret != AXE_SUCCEED) {
@@ -5466,7 +5795,9 @@ test_create_remove_all_helper(size_t num_necessary_parents,
             task_data[i].cond_signal_sent = 1;
 
             /* Create task without parent */
-            if(AXEcreate_task(engine, &task, 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(engine, task, 0, NULL, 0, NULL, basic_task_worker, &task_data[i], NULL) != AXE_SUCCEED)
                 TEST_ERROR;
         } /* end if */
 
@@ -5494,7 +5825,7 @@ test_create_remove_all_helper(size_t num_necessary_parents,
 
 
     /* Close task */
-    if(AXEfinish(task) != AXE_SUCCEED)
+    if(AXEfinish(engine, task) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Wait for tasks and remove helper to complete.  Do this by terminating the
@@ -5505,6 +5836,11 @@ test_create_remove_all_helper(size_t num_necessary_parents,
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
+
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     engine_init = FALSE;
 
     /*
@@ -5554,6 +5890,7 @@ error:
     if(engine_init) {
         (void)AXEterminate_engine(engine, FALSE);
         MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+        (void)AXEengine_attr_destroy(&engine_attr);
     } /* end if */
 
     OPA_incr_int(&helper_data->nfailed);
@@ -5578,7 +5915,6 @@ error:
  */
 /* Data shared between all remove helper tasks */
 typedef struct pileup_shared_t {
-    AXE_engine_t engine;        /* Engine containing tasks to be removed */
     basic_task_t *task_data;    /* Task data array for task to create */
     OPA_int_t task_data_i;      /* Index into task_data for next task */
     OPA_ptr_t rem_task;         /* Pointer to task to remove */
@@ -5588,7 +5924,7 @@ typedef struct pileup_shared_t {
 
 /* Secondary helper function.  Creates a task and returns. */
 void
-pileup_create_helper(size_t num_necessary_parents,
+pileup_create_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
@@ -5602,14 +5938,16 @@ pileup_create_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create task */
-    if(AXEcreate_task(helper_data->engine, task, 0, NULL, 0, NULL, basic_task_worker, &helper_data->task_data[OPA_fetch_and_incr_int(&helper_data->task_data_i)], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, *task, 0, NULL, 0, NULL, basic_task_worker, &helper_data->task_data[OPA_fetch_and_incr_int(&helper_data->task_data_i)], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Add task to shared struct, finish and free previous task in shared struct
      */
     task = OPA_swap_ptr(&helper_data->rem_task, task);
     if(task) {
-        if(AXEfinish(*task) != AXE_SUCCEED)
+        if(AXEfinish(engine, *task) != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
         free(task);
     } /* end if */
@@ -5628,7 +5966,7 @@ error:
 
 /* Secondary helper function.  Creates a barrier task and returns. */
 void
-pileup_create_barrier_helper(size_t num_necessary_parents,
+pileup_create_barrier_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
@@ -5642,14 +5980,16 @@ pileup_create_barrier_helper(size_t num_necessary_parents,
         TEST_ERROR;
 
     /* Create task */
-    if(AXEcreate_barrier_task(helper_data->engine, task, basic_task_worker, &helper_data->task_data[OPA_fetch_and_incr_int(&helper_data->task_data_i)], NULL) != AXE_SUCCEED)
+    if(AXEgenerate_task_id(engine, task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_barrier_task(engine, *task, basic_task_worker, &helper_data->task_data[OPA_fetch_and_incr_int(&helper_data->task_data_i)], NULL) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Add task to shared struct, finish and free previous task in shared struct
      */
     task = OPA_swap_ptr(&helper_data->rem_task, task);
     if(task) {
-        if(AXEfinish(*task) != AXE_SUCCEED)
+        if(AXEfinish(engine, *task) != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
         free(task);
     } /* end if */
@@ -5668,7 +6008,7 @@ error:
 
 /* Secondary helper function.  Removes a task and returns. */
 void
-pileup_remove_helper(size_t num_necessary_parents,
+pileup_remove_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
@@ -5686,12 +6026,12 @@ pileup_remove_helper(size_t num_necessary_parents,
          * barrier tasks) */
         if(AXEbegin_try() != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
-        (void)AXEremove(*rem_task, NULL);
+        (void)AXEremove(engine, *rem_task, NULL);
         if(AXEend_try() != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
 
         /* Finish and free rem_task */
-        if(AXEfinish(*rem_task) != AXE_SUCCEED)
+        if(AXEfinish(engine, *rem_task) != AXE_SUCCEED)
             OPA_incr_int(&helper_data->num_failed);
         free(rem_task);
     } /* end if */
@@ -5706,7 +6046,7 @@ pileup_remove_helper(size_t num_necessary_parents,
 
 /* Secondary helper function.  Removes all tasks and returns. */
 void
-pileup_remove_all_helper(size_t num_necessary_parents,
+pileup_remove_all_helper(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_task_data)
 {
@@ -5715,7 +6055,7 @@ pileup_remove_all_helper(size_t num_necessary_parents,
     assert(helper_data);
 
     /* Cancel all tasks */
-    if(AXEremove_all(helper_data->engine, NULL) != AXE_SUCCEED)
+    if(AXEremove_all(engine, NULL) != AXE_SUCCEED)
         OPA_incr_int(&helper_data->num_failed);
 
     /* Make sure there are no parents */
@@ -5728,28 +6068,35 @@ pileup_remove_all_helper(size_t num_necessary_parents,
 
 /* Main test helper function */
 void
-test_pileup_helper(size_t num_necessary_parents,
+test_pileup_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *_helper_data)
 {
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
     _Bool engine_init = FALSE;;
     pileup_shared_t int_helper_data;
     basic_task_shared_t shared_task_data;
+    AXE_task_t tmp_task;
     int total_ncalls;
     int i;
 
     /* Reserve threads for engine */
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
 
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     /* Create AXE engine */
-    if(AXEcreate_engine(helper_data->num_threads, &engine) != AXE_SUCCEED)
+    if(AXEset_num_threads(&engine_attr, helper_data->num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
     engine_init = TRUE;
 
     /* Initialize int_helper_data */
-    int_helper_data.engine = engine;
     if(NULL == (int_helper_data.task_data = (basic_task_t *)malloc(PILEUP_NTASKS * sizeof(basic_task_t))))
         TEST_ERROR;
     OPA_store_int(&int_helper_data.task_data_i, 0);
@@ -5773,19 +6120,35 @@ test_pileup_helper(size_t num_necessary_parents,
     /* Launch CREATE_REMOVE_ALL_NTASKS tasks */
     for(i = 0; i < (PILEUP_NTASKS / 2); i++) {
         /* Launch create helper */
-        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_create_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+        if(AXEgenerate_task_id(engine, &tmp_task) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, tmp_task, 0, NULL, 0, NULL, pileup_create_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEfinish(engine, tmp_task) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Launch create barrier helper */
-        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_create_barrier_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+        if(AXEgenerate_task_id(engine, &tmp_task) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, tmp_task, 0, NULL, 0, NULL, pileup_create_barrier_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEfinish(engine, tmp_task) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Launch remove helper */
-        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+        if(AXEgenerate_task_id(engine, &tmp_task) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, tmp_task, 0, NULL, 0, NULL, pileup_remove_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEfinish(engine, tmp_task) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Launch remove all helper */
-        if(AXEcreate_task(engine, NULL, 0, NULL, 0, NULL, pileup_remove_all_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+        if(AXEgenerate_task_id(engine, &tmp_task) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEcreate_task(engine, tmp_task, 0, NULL, 0, NULL, pileup_remove_all_helper, &int_helper_data, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+        if(AXEfinish(engine, tmp_task) != AXE_SUCCEED)
             TEST_ERROR;
     } /* end for */
 
@@ -5800,6 +6163,11 @@ test_pileup_helper(size_t num_necessary_parents,
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
+
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     engine_init = FALSE;
 
     /*
@@ -5837,12 +6205,509 @@ error:
     if(engine_init) {
         (void)AXEterminate_engine(engine, FALSE);
         MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+        (void)AXEengine_attr_destroy(&engine_attr);
     } /* end if */
 
     OPA_incr_int(&helper_data->nfailed);
 
     return;
 } /* end test_pileup_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    test_id_helper
+ *
+ * Purpose:     Simple test for task id functionality.  Only tests serial
+ *              functionality, does not test threadsafety of id table,
+ *              threrefore only needs to be run once.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              April 23, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    AXE_engine_t engine;
+    AXE_engine_attr_t engine_attr;
+    AXE_task_t task[7];
+    int i;
+
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Set number of threads to 1 */
+    if(AXEset_num_threads(&engine_attr, 1) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Set id range to 2-4 */
+    if(AXEset_id_range(&engine_attr, 2, 4) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 1: Only automatically generated ids.  Verify that id exhaustion is
+     * handled gracefully, verify that ids can be recycled, Verify that ids used
+     * to create a task cannot be released.
+     */
+    /* Create AXE engine */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate 3 ids, verify that they are 2, 3, and 4 */
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[0] != 2)
+        TEST_ERROR;
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[1] != 3)
+        TEST_ERROR;
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[2] != 4)
+        TEST_ERROR;
+
+    /* Try to generate another id.  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEgenerate_task_id(engine, &task[3]) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Release task[1] (id 3) */
+    if(AXErelease_task_id(engine, task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another id.  Should take id 3. */
+    if(AXEgenerate_task_id(engine, &task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[1] != 3)
+        TEST_ERROR;
+
+    /* Associate a task with task[1] (id 3) */
+    if(AXEcreate_task(engine, task[1], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Try to release task[1].  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXErelease_task_id(engine, task[1]) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish task[1] */
+    if(AXEfinish(engine, task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 2: Only manually generated ids.  Verify that ids can be manually
+     * given above, below, and within the range set by AXEset_id_range().
+     */
+    /* Create AXE engine */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create tasks with ids 1-5 */
+    for(i = 0; i < 5; i++) {
+        task[i] = i + 1;
+        if(AXEcreate_task(engine, task[i], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+            TEST_ERROR;
+    } /* end for */
+
+    /* Try to release tasks.  Should fail. */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    for(i = 0; i < 5; i++)
+        if(AXErelease_task_id(engine, task[i]) != AXE_FAIL)
+            TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish tasks */
+    if(AXEfinish_all(engine, 5, task) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 3: Mix automatic and manual id generation.  Make sure manual ids
+     * outside the range do not affect automatic generation.  Make sure manual
+     * ids inside the range are taken into account.
+     */
+    /* Set id range to 2-8 */
+    if(AXEset_id_range(&engine_attr, 2, 8) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create AXE engine */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate and release an automatic id */
+    if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[0] != 2)
+        TEST_ERROR;
+    if(AXErelease_task_id(engine, task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Create manual tasks above and below id range */
+    task[0] = 1;
+    if(AXEcreate_task(engine, task[0], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    task[1] = 9;
+    if(AXEcreate_task(engine, task[1], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another automatic id.  Should be 3. */
+    if(AXEgenerate_task_id(engine, &task[2]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[2] != 3)
+        TEST_ERROR;
+
+    /* Create a manual task with id 5 */
+    task[3] = 5;
+    if(AXEcreate_task(engine, task[3], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another automatic id.  Should be 6. */
+    if(AXEgenerate_task_id(engine, &task[4]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[4] != 6)
+        TEST_ERROR;
+
+    /* Create a manual task with id 8 */
+    task[5] = 8;
+    if(AXEcreate_task(engine, task[5], 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Generate another automatic id.  Should be 2. */
+    if(AXEgenerate_task_id(engine, &task[6]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task[6] != 2)
+        TEST_ERROR;
+
+    /* Finish created tasks */
+    if(AXEfinish(engine, task[0]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task[1]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task[3]) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEfinish(engine, task[5]) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Close
+     */
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    (void)AXEterminate_engine(engine, FALSE);
+
+    (void)AXEengine_attr_destroy(&engine_attr);
+
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_id_helper() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    test_attr_helper
+ *
+ * Purpose:     Simple test for engine attribute functionality.  Only
+ *              tests serial functionality, does not test threadsafety of
+ *              anything, threrefore only needs to be run once.
+ *
+ * Return:      void
+ *
+ * Programmer:  Neil Fortner
+ *              April 24, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+void
+test_attr_helper(AXE_engine_t _engine, size_t num_necessary_parents,
+    AXE_task_t necessary_parents[], size_t num_sufficient_parents,
+    AXE_task_t sufficient_parents[], void *_helper_data)
+{
+    test_helper_t *helper_data = (test_helper_t *)_helper_data;
+    AXE_engine_t engine;
+    _Bool engine_init = FALSE;
+    AXE_engine_attr_t engine_attr;
+    size_t num_threads;
+    AXE_task_t min_id;
+    AXE_task_t max_id;
+    size_t num_buckets;
+    size_t num_mutexes;
+    AXE_task_t task;
+
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+
+    /*
+     * Test 1: num_threads
+     */
+    /* Get number of threads, verify it is the default (8) */
+    if(AXEget_num_threads(&engine_attr, &num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_threads != 8)
+        TEST_ERROR;
+
+    /* Change number of threads to 9 */
+    if(AXEset_num_threads(&engine_attr, 9) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of threads, verify it is 9 */
+    if(AXEget_num_threads(&engine_attr, &num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_threads != 9)
+        TEST_ERROR;
+
+    /* Try to change number of threads to 0 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_num_threads(&engine_attr, 0) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of threads, verify it is 9 */
+    if(AXEget_num_threads(&engine_attr, &num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_threads != 9)
+        TEST_ERROR;
+
+
+    /*
+     * Test 2: id range
+     */
+    /* Get id range, verify it is the default (0-UINT64_MAX) */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 0)
+        TEST_ERROR;
+    if(max_id != UINT64_MAX)
+        TEST_ERROR;
+
+    /* Change range to 3-42 */
+    if(AXEset_id_range(&engine_attr, 3, 42) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get id range verify it is 3-42 */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 3)
+        TEST_ERROR;
+    if(max_id != 42)
+        TEST_ERROR;
+
+    /* Change range to 11-11 */
+    if(AXEset_id_range(&engine_attr, 11, 11) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get id range verify it is 11-11 */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 11)
+        TEST_ERROR;
+    if(max_id != 11)
+        TEST_ERROR;
+
+    /* Change range to 11-10 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_id_range(&engine_attr, 11, 10) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get id range verify it is 11-11 */
+    if(AXEget_id_range(&engine_attr, &min_id, &max_id) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(min_id != 11)
+        TEST_ERROR;
+    if(max_id != 11)
+        TEST_ERROR;
+
+
+    /*
+     * Test 3: num_buckets
+     */
+    /* Get number of buckets, verify it is the default (10007) */
+    if(AXEget_num_id_buckets(&engine_attr, &num_buckets) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_buckets != 10007)
+        TEST_ERROR;
+
+    /* Change number of buckets to 8419 */
+    if(AXEset_num_id_buckets(&engine_attr, 8419) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of buckets, verify it is 8419 */
+    if(AXEget_num_id_buckets(&engine_attr, &num_buckets) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_buckets != 8419)
+        TEST_ERROR;
+
+    /* Try to change number of buckets to 0 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_num_id_buckets(&engine_attr, 0) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of buckets, verify it is 8419 */
+    if(AXEget_num_id_buckets(&engine_attr, &num_buckets) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_buckets != 8419)
+        TEST_ERROR;
+
+
+    /*
+     * Test 4: num_mutexes
+     */
+    /* Get number of mutexes, verify it is the default (503) */
+    if(AXEget_num_id_mutexes(&engine_attr, &num_mutexes) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_mutexes != 503)
+        TEST_ERROR;
+
+    /* Change number of mutexes to 521 */
+    if(AXEset_num_id_mutexes(&engine_attr, 521) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of mutexes, verify it is 521 */
+    if(AXEget_num_id_mutexes(&engine_attr, &num_mutexes) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_mutexes != 521)
+        TEST_ERROR;
+
+    /* Try to change number of mutexes to 0 (should fail) */
+    if(AXEbegin_try() != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEset_num_id_mutexes(&engine_attr, 0) != AXE_FAIL)
+        TEST_ERROR;
+    if(AXEend_try() != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Get number of mutexes, verify it is 521 */
+    if(AXEget_num_id_mutexes(&engine_attr, &num_mutexes) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(num_mutexes != 521)
+        TEST_ERROR;
+
+
+    /*
+     * Test 5: Create engine
+     */
+    /* Create AXE engine using the attribute */
+    if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Create a task using the engine */
+    if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task != 11)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task, 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish task */
+    if(AXEfinish(engine, task) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = FALSE;
+
+
+    /*
+     * Test 5: Create engine with NULL attribute
+     */
+    /* Create AXE engine using NULL attribute */
+    if(AXEcreate_engine(&engine, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = TRUE;
+
+    /* Create a task using the engine */
+    if(AXEgenerate_task_id(engine, &task) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(task != 0)
+        TEST_ERROR;
+    if(AXEcreate_task(engine, task, 0, NULL, 0, NULL, NULL, NULL, NULL) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Finish task */
+    if(AXEfinish(engine, task) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Terminate engine */
+    AXE_test_exclude_close_on(engine);
+    if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
+        TEST_ERROR;
+    engine_init = FALSE;
+
+
+    /*
+     * Close
+     */
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    OPA_incr_int(&helper_data->ncomplete);
+
+    return;
+
+error:
+    if(engine_init)
+        (void)AXEterminate_engine(engine, FALSE);
+
+    (void)AXEengine_attr_destroy(&engine_attr);
+
+    OPA_incr_int(&helper_data->nfailed);
+
+    return;
+} /* end test_attr_helper() */
 
 
 /*-------------------------------------------------------------------------
@@ -5866,6 +6731,7 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
     _Bool create_engine, char *test_name)
 {
     test_helper_t helper_data;
+    AXE_engine_attr_t engine_attr;
     size_t i;
 
     TESTING(test_name);
@@ -5877,6 +6743,14 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
 #endif /* AXE_DEBUG_PERF */
 
     helper_data.engine = NULL;
+    
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
+    /* Set number of threads on engine attribute */
+    if(AXEset_num_threads(&engine_attr, num_threads) != AXE_SUCCEED)
+        TEST_ERROR;
 
     /* Perform niter iterations of the test */
     for(i = 0; i < niter; i++) {
@@ -5890,14 +6764,14 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
          * threads because it has already been cleared by main and no other
          * tests will be run at the same time */
         if(create_engine) {
-            if(AXEcreate_engine(num_threads, &helper_data.engine) != AXE_SUCCEED)
+            if(AXEcreate_engine(&helper_data.engine, &engine_attr) != AXE_SUCCEED)
                 TEST_ERROR;
         } /* end if */
         else
             helper_data.engine = NULL;
 
         /* Launch test helper */
-        helper(0, NULL, 0, NULL, &helper_data);
+        helper(NULL, 0, NULL, 0, NULL, &helper_data);
 
         /* Check for error */
         if(OPA_load_int(&helper_data.nfailed) != 0)
@@ -5914,6 +6788,10 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
         } /* end if */
     } /* end for */
 
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     PASSED();
 
 #ifdef AXE_DEBUG_PERF
@@ -5927,6 +6805,8 @@ error:
         (void)AXEterminate_engine(helper_data.engine, FALSE);
         MAX_NTHREADS_RELEASE(num_threads, );
     } /* end if */
+
+    (void)AXEengine_attr_destroy(&engine_attr);
 
     return 1;
 } /* end test_serial() */
@@ -5953,8 +6833,10 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
 {
     AXE_engine_t meta_engine;
     test_helper_t helper_data;
+    AXE_engine_attr_t engine_attr;
     pthread_mutex_t parallel_mutex;
     _Bool meta_engine_init = FALSE;
+    AXE_task_t tmp_task;
     size_t simple_i = 0;
     size_t necessary_i = 0;
     size_t sufficient_i = 0;
@@ -5996,15 +6878,23 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     /* Reserve threads for internal engine */
     MAX_NTHREADS_RESERVE(num_threads_int, TEST_ERROR);
 
+    /* Initialize engine attribute */
+    if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     /* Create internal engine for use by helper tasks */
-    if(AXEcreate_engine(num_threads_int, &helper_data.engine) != AXE_SUCCEED)
+    if(AXEset_num_threads(&engine_attr, num_threads_int) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_engine(&helper_data.engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
 
     /* Reserve threads for meta engine */
     MAX_NTHREADS_RESERVE(num_threads_meta, TEST_ERROR);
 
     /* Create meta engine to assist in spawning helper tasks */
-    if(AXEcreate_engine(num_threads_meta, &meta_engine) != AXE_SUCCEED)
+    if(AXEset_num_threads(&engine_attr, num_threads_meta) != AXE_SUCCEED)
+        TEST_ERROR;
+    if(AXEcreate_engine(&meta_engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
     meta_engine_init = TRUE;
 
@@ -6013,112 +6903,176 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     for(i = 0; i < niter; i++) {
         /* Launch simple test */
         if(i >= simple_i * PARALLEL_NITER / SIMPLE_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_simple_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_simple_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             simple_i++;
         } /* end if */
 
         /* Launch necessary test */
         if(i >= necessary_i * PARALLEL_NITER / NECESSARY_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_necessary_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_necessary_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             necessary_i++;
         } /* end if */
 
         /* Launch sufficient test */
         if(i >= sufficient_i * PARALLEL_NITER / SUFFICIENT_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_sufficient_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_sufficient_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             sufficient_i++;
         } /* end if */
 
         /* Launch barrier test */
         if(i >= barrier_i * PARALLEL_NITER / BARRIER_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_barrier_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_barrier_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             barrier_i++;
         } /* end if */
 
         /* Launch get_op_data test */
         if(i >= get_op_data_i * PARALLEL_NITER / GET_OP_DATA_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_get_op_data_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_get_op_data_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             get_op_data_i++;
         } /* end if */
 
         /* Launch finish_all test */
         if(i >= finish_all_i * PARALLEL_NITER / FINISH_ALL_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_finish_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_finish_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             finish_all_i++;
         } /* end if */
 
         /* Launch free_op_data test */
         if(i >= free_op_data_i * PARALLEL_NITER / FREE_OP_DATA_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_free_op_data_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_free_op_data_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             free_op_data_i++;
         } /* end if */
 
         /* Launch remove test */
         if(i >= remove_i * PARALLEL_NITER / REMOVE_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_remove_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_remove_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             remove_i++;
         } /* end if */
 
         /* Launch remove_all test */
         if(i >= remove_all_i * PARALLEL_NITER / REMOVE_ALL_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_remove_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_remove_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             remove_all_i++;
         } /* end if */
 
         /* Launch terminate_engine test */
         if(i >= terminate_engine_i * PARALLEL_NITER / TERMINATE_ENGINE_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_terminate_engine_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_terminate_engine_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             terminate_engine_i++;
         } /* end if */
 
         /* Launch fractal test */
         if(i >= fractal_i * PARALLEL_NITER / FRACTAL_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_fractal_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_fractal_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             fractal_i++;
         } /* end if */
 
         /* Launch fractal_nodep test */
         if(i >= fractal_nodep_i * PARALLEL_NITER / FRACTAL_NODEP_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_fractal_nodep_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_fractal_nodep_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             fractal_nodep_i++;
         } /* end if */
 
         /* Launch create_remove test */
         if(i >= create_remove_i * PARALLEL_NITER / CREATE_REMOVE_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_create_remove_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_create_remove_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             create_remove_i++;
         } /* end if */
 
         /* Launch create_remove_all test */
         if(i >= create_remove_all_i * PARALLEL_NITER / CREATE_REMOVE_ALL_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_create_remove_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_create_remove_all_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             create_remove_all_i++;
         } /* end if */
 
         /* Launch pileup test */
         if(i >= pileup_i * PARALLEL_NITER / PILEUP_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_pileup_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_pileup_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             pileup_i++;
         } /* end if */
 
         /* Launch num_threads test */
         if(i >= num_threads_i * PARALLEL_NITER / NUM_THREADS_NITER) {
-            if(AXEcreate_task(meta_engine, NULL, 0, NULL, 0, NULL, test_num_threads_helper, &helper_data, NULL) != AXE_SUCCEED)
+            if(AXEgenerate_task_id(meta_engine, &tmp_task) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEcreate_task(meta_engine, tmp_task, 0, NULL, 0, NULL, test_num_threads_helper, &helper_data, NULL) != AXE_SUCCEED)
+                TEST_ERROR;
+            if(AXEfinish(meta_engine, tmp_task) != AXE_SUCCEED)
                 TEST_ERROR;
             num_threads_i++;
         } /* end if */
@@ -6167,6 +7121,10 @@ test_parallel(size_t num_threads_meta, size_t num_threads_int, size_t niter)
     /* Release threads used by internal engine */
     MAX_NTHREADS_RELEASE(num_threads_int, TEST_ERROR);
 
+    /* Destroy engine attribute */
+    if(AXEengine_attr_destroy(&engine_attr) != AXE_SUCCEED)
+        TEST_ERROR;
+
     PASSED();
 
 #ifdef AXE_DEBUG_PERF
@@ -6182,6 +7140,7 @@ error:
     } /* end if */
     (void)AXEterminate_engine(helper_data.engine, FALSE);
     MAX_NTHREADS_RELEASE(num_threads_int, );
+    (void)AXEengine_attr_destroy(&engine_attr);
     (void)pthread_mutex_destroy(&parallel_mutex);
 
     return 1;
@@ -6242,6 +7201,12 @@ main(int argc, char **argv)
     /* Check if we can run with 2 threads */
     MAX_NTHREADS_CHECK_STATIC_IF(2)
         nerrors += test_serial(test_num_threads_helper, 2, NUM_THREADS_NITER, FALSE, "number of threads");
+    /* Check if we can run with 1 thread */
+    MAX_NTHREADS_CHECK_STATIC_IF(1)
+        nerrors += test_serial(test_id_helper, 1, 1, FALSE, "task ids");
+    /* Check if we can run with 1 thread */
+    MAX_NTHREADS_CHECK_STATIC_IF(1)
+        nerrors += test_serial(test_attr_helper, 1, 1, FALSE, "engine attributes");
 
     /* Free memory allocated for limiting number of threads */
     MAX_NTHREADS_FREE(puts("FAILED to shut down properly!\n"); exit(1));

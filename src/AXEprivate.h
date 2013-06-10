@@ -28,7 +28,7 @@
 #include <opa_primitives.h>
 #include <opa_queue.h>
 
-#include "AXE.h"
+#include "axe.h"
 
 
 /*
@@ -83,6 +83,7 @@ extern OPA_int_t AXE_debug_nadds;
  * Private global variables
  */
 extern OPA_int_t AXE_quiet_g;
+extern const AXE_engine_attr_t AXE_engine_attr_def_g;
 
 
 #endif /* AXE_PRIVATE_H_INCLUDED */

@@ -2,7 +2,7 @@ AXE version 0.1b currently under development
 ------------------------------------------------------------------------------
 An asynchronous concurrent execution engine for a graph of tasks.
 
-For now, the primary documentation is in the comments in AXE.c and AXE.h.  All
+For now, the primary documentation is in the comments in AXE.c and axe.h.  All
 public API functions are contained in AXE.c, and AXE.c contains no non-public
 functions.
 

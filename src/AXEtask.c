@@ -16,8 +16,8 @@
  * Local functions
  */
 static AXE_error_t AXE_task_init(AXE_engine_int_t *engine,
-    AXE_task_int_t **task/*out*/, AXE_task_op_t op, void *op_data,
-    AXE_task_free_op_data_t free_op_data);
+    AXE_task_int_t **task/*out*/, AXE_id_t task_id, AXE_task_op_t op,
+    void *op_data, AXE_task_free_op_data_t free_op_data);
 
 
 /*-------------------------------------------------------------------------
@@ -92,7 +92,7 @@ AXE_task_decr_ref(AXE_task_int_t *task, AXE_task_int_t **free_ptr)
         if(free_ptr)
             *free_ptr = task;
         else
-            if(AXE_task_free(task) != AXE_SUCCEED)
+            if(AXE_task_free(task, TRUE) != AXE_SUCCEED)
                 ERROR;
     } /* end if */
 
@@ -116,54 +116,74 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_task_create(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
-    size_t num_necessary_parents, AXE_task_int_t **necessary_parents,
-    size_t num_sufficient_parents, AXE_task_int_t **sufficient_parents,
+AXE_task_create(AXE_engine_int_t *engine, AXE_id_t task_id,
+    size_t num_necessary_parents, AXE_task_t *necessary_parents,
+    size_t num_sufficient_parents, AXE_task_t *sufficient_parents,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
+    AXE_task_int_t *task = NULL;
+    size_t i;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(engine);
-    assert(task);
     assert(num_necessary_parents == 0 || necessary_parents);
     assert(num_sufficient_parents == 0 || sufficient_parents);
 
-    *task = NULL;
-
     /* Allocate and initialize task struct */
-    if(AXE_task_init(engine, task, op, op_data, free_op_data) != AXE_SUCCEED)
+    if(AXE_task_init(engine, &task, task_id, op, op_data, free_op_data) != AXE_SUCCEED)
         ERROR;
 
-    /* Copy necessary and sufficient parent arrays */
-    if(num_necessary_parents) {
-        if(NULL == ((*task)->necessary_parents = (AXE_task_int_t **)malloc(num_necessary_parents * sizeof(AXE_task_int_t *))))
+    /* Copy necessary parent array */
+    if(num_necessary_parents > 0) {
+        if(NULL == (task->necessary_parents = (AXE_task_t *)malloc(num_necessary_parents * sizeof(AXE_task_t))))
             ERROR;
-        (void)memcpy((*task)->necessary_parents, necessary_parents, num_necessary_parents * sizeof(AXE_task_int_t *));
+        (void)memcpy(task->necessary_parents, necessary_parents, num_necessary_parents * sizeof(AXE_task_t));
     } /* end if */
-    (*task)->num_necessary_parents = num_necessary_parents;
-    if(num_sufficient_parents) {
-        if(NULL == ((*task)->sufficient_parents = (AXE_task_int_t **)malloc(num_sufficient_parents * sizeof(AXE_task_int_t *))))
+
+    /* Copy array lengths */
+    task->num_necessary_parents = num_necessary_parents;
+    task->num_sufficient_parents = num_sufficient_parents;
+
+    /* Create internal necessary parent array */
+    if(num_necessary_parents > 0) {
+        if(NULL == (task->necessary_parents_int = (AXE_task_int_t **)malloc(num_necessary_parents * sizeof(AXE_task_int_t *))))
             ERROR;
-        (void)memcpy((*task)->sufficient_parents, sufficient_parents, num_sufficient_parents * sizeof(AXE_task_int_t *));
+        for(i = 0; i < num_necessary_parents; i++) {
+            if(AXE_id_lookup(engine->id_table, (AXE_id_t)necessary_parents[i], (void **)&task->necessary_parents_int[i]) != AXE_SUCCEED)
+                ERROR;
+            if(!task->necessary_parents_int[i])
+                ERROR;
+        } /* end for */
     } /* end if */
-    (*task)->num_sufficient_parents = num_sufficient_parents;
+
+    /* Create internal sufficient parent array */
+    if(num_sufficient_parents > 0) {
+        if(NULL == (task->sufficient_parents_int = (AXE_task_int_t **)malloc(num_sufficient_parents * sizeof(AXE_task_int_t *))))
+            ERROR;
+        for(i = 0; i < num_sufficient_parents; i++) {
+            if(AXE_id_lookup(engine->id_table, (AXE_id_t)sufficient_parents[i], (void **)&task->sufficient_parents_int[i]) != AXE_SUCCEED)
+                ERROR;
+            if(!task->sufficient_parents_int[i])
+                ERROR;
+        } /* end for */
+    } /* end if */
 
     /* Check if the sufficient condition is already complete, due to the task
      * having no sufficient parents */
-    OPA_store_int(&(*task)->sufficient_complete, (int)(num_sufficient_parents == 0));
+    OPA_store_int(&task->sufficient_complete, (int)(num_sufficient_parents == 0));
 
     /* Initialize num_necessary_complete - includes one for sufficient_complete
      */
-    OPA_store_int(&(*task)->num_conditions_complete, OPA_load_int(&(*task)->sufficient_complete));
+    OPA_store_int(&task->num_conditions_complete, OPA_load_int(&task->sufficient_complete));
 
     /* Add task to schedule */
-    if(AXE_schedule_add(*task) != AXE_SUCCEED)
+    if(AXE_schedule_add(task) != AXE_SUCCEED)
         ERROR;
 
 done:
     if(ret_value == AXE_FAIL)
-        if(*task)
-            (void)AXE_task_decr_ref(*task, NULL);
+        if(task)
+            (void)AXE_task_decr_ref(task, NULL);
 
     return ret_value;
 } /* end AXE_task_create() */
@@ -184,33 +204,31 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_task_create_barrier(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
+AXE_task_create_barrier(AXE_engine_int_t *engine, AXE_id_t task_id,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
+    AXE_task_int_t *task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(engine);
-    assert(task);
-
-    *task = NULL;
 
     /* Allocate and initialize task struct */
-    if(AXE_task_init(engine, task, op, op_data, free_op_data) != AXE_SUCCEED)
+    if(AXE_task_init(engine, &task, task_id, op, op_data, free_op_data) != AXE_SUCCEED)
         ERROR;
 
     /* Initialize sufficient_complete to TRUE and num_conditions_complete to 1,
      * as barrier tasks never have sufficient parents */
-    OPA_store_int(&(*task)->sufficient_complete, TRUE);
-    OPA_store_int(&(*task)->num_conditions_complete, 1);
+    OPA_store_int(&task->sufficient_complete, TRUE);
+    OPA_store_int(&task->num_conditions_complete, 1);
 
     /* Add barrier task to schedule */
-    if(AXE_schedule_add_barrier(*task) != AXE_SUCCEED)
+    if(AXE_schedule_add_barrier(task) != AXE_SUCCEED)
         ERROR;
 
 done:
     if(ret_value == AXE_FAIL)
-        if(*task)
-            (void)AXE_task_decr_ref(*task, NULL);
+        if(task)
+            (void)AXE_task_decr_ref(task, NULL);
 
     return ret_value;
 } /* end AXE_task_create_barrier() */
@@ -311,21 +329,21 @@ AXE_task_worker(void *_task)
             for(i = 0; i < old_num_sufficient_parents; i++) {
                 /* Keep track of how many complete tasks we found in a row and
                  * copy in blocks */
-                if((AXE_status_t)OPA_load_int(&task->sufficient_parents[i]->status)
+                if((AXE_status_t)OPA_load_int(&task->sufficient_parents_int[i]->status)
                         == AXE_TASK_DONE)
                     block++;
                 else {
                     /* Decrement reference count on uncomplete parent */
-    #ifdef AXE_DEBUG_REF
-                    printf("AXE_task_worker: decr ref: %p\n", task->sufficient_parents[i]);
-    #endif /* AXE_DEBUG_REF */
-                    if(AXE_task_decr_ref(task->sufficient_parents[i], NULL) != AXE_SUCCEED)
+#ifdef AXE_DEBUG_REF
+                    printf("AXE_task_worker: decr ref: %p\n", task->sufficient_parents_int[i]);
+#endif /* AXE_DEBUG_REF */
+                    if(AXE_task_decr_ref(task->sufficient_parents_int[i], NULL) != AXE_SUCCEED)
                         ERROR;
 
                     if(block) {
                         /* End of block, slide block down (if necessary) */
                         if(block != i)
-                            (void)memmove(&task->sufficient_parents[task->num_sufficient_parents], &task->sufficient_parents[i - block], block * sizeof(task->sufficient_parents[0]));
+                            (void)memmove(&task->sufficient_parents_int[task->num_sufficient_parents], &task->sufficient_parents_int[i - block], block * sizeof(task->sufficient_parents_int[0]));
 
                         /* Update number of sufficient parents and reset block
                          */
@@ -339,7 +357,7 @@ AXE_task_worker(void *_task)
             if(block) {
                 /* Slide block down (if necessary) */
                 if(block != i)
-                    (void)memmove(&task->sufficient_parents[task->num_sufficient_parents], &task->sufficient_parents[i - block], block * sizeof(task->sufficient_parents[0]));
+                    (void)memmove(&task->sufficient_parents_int[task->num_sufficient_parents], &task->sufficient_parents_int[i - block], block * sizeof(task->sufficient_parents_int[0]));
 
                 /* Update number of sufficient parents */
                 task->num_sufficient_parents += block;
@@ -347,8 +365,31 @@ AXE_task_worker(void *_task)
 
             assert(task->num_sufficient_parents <= old_num_sufficient_parents);
 
+            /* Create necessary_parents arrray of AXE_task_t for callback */
+            if((task->num_necessary_parents > 0) && !task->necessary_parents) {
+                /* Allocate array */
+                if(NULL == (task->necessary_parents = (AXE_task_t *)malloc(task->num_necessary_parents * sizeof(AXE_task_t ))))
+                    ERROR;
+
+                /* Fill array with task ids */
+                for(i = 0; i < task->num_necessary_parents; i++)
+                    task->necessary_parents[i] = (AXE_task_t)task->necessary_parents_int[i]->id;
+            } /* end if */
+
+            /* Create sufficient_parents arrray of AXE_task_t for callback */
+            assert(!task->sufficient_parents);
+            if(task->num_sufficient_parents > 0) {
+                /* Allocate array */
+                if(NULL == (task->sufficient_parents = (AXE_task_t *)malloc(task->num_sufficient_parents * sizeof(AXE_task_t ))))
+                    ERROR;
+
+                /* Fill array with task ids */
+                for(i = 0; i < task->num_sufficient_parents; i++)
+                    task->sufficient_parents[i] = (AXE_task_t)task->sufficient_parents_int[i]->id;
+            } /* end if */
+
             /* Execute client task */
-            (task->op)(task->num_necessary_parents, (AXE_task_t *)task->necessary_parents, task->num_sufficient_parents, (AXE_task_t *)task->sufficient_parents, task->op_data);
+            (task->op)(task->engine, task->num_necessary_parents, (AXE_task_t *)task->necessary_parents, task->num_sufficient_parents, (AXE_task_t *)task->sufficient_parents, task->op_data);
         } /* end if */
         else {
             /* The operator function was not called, so we must remove
@@ -357,11 +398,11 @@ AXE_task_worker(void *_task)
 
             /* Remove references to all necessary parents */
             for(i = 0; i < task->num_necessary_parents; i++)
-                AXE_task_decr_ref(task->necessary_parents[i], NULL);
+                AXE_task_decr_ref(task->necessary_parents_int[i], NULL);
 
             /* Remove references to all sufficient parents */
             for(i = 0; i < task->num_sufficient_parents; i++)
-                AXE_task_decr_ref(task->sufficient_parents[i], NULL);
+                AXE_task_decr_ref(task->sufficient_parents_int[i], NULL);
         } /* end else */
 
         /* Update the schedule to reflect that this task is complete, and
@@ -506,7 +547,7 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_task_free(AXE_task_int_t *task)
+AXE_task_free(AXE_task_int_t *task, _Bool remove_id)
 {
     AXE_error_t ret_value = AXE_SUCCEED;
 
@@ -517,10 +558,10 @@ AXE_task_free(AXE_task_int_t *task)
     printf("AXE_task_free: %p\n", task); fflush(stdout);
 #endif /* AXE_DEBUG */
 
-    /* Remove from task list, if in list (might not be in list because the
-     * schedule is being freed) */
-    if(task->task_list_next)
-        if(AXE_schedule_remove_from_list(task) != AXE_SUCCEED)
+    /* Remove from id table, if requested (may not be requested if the table is
+     * being freed) */
+    if(remove_id)
+        if(AXE_id_remove(task->engine->id_table, task->id) != AXE_SUCCEED)
             ERROR;
 
     /* Free fields */
@@ -534,6 +575,10 @@ AXE_task_free(AXE_task_int_t *task)
         ret_value = AXE_FAIL;
     if(0 != pthread_cond_destroy(&task->wait_cond))
         ret_value = AXE_FAIL;
+    if(task->necessary_parents_int)
+        free(task->necessary_parents_int);
+    if(task->sufficient_parents_int)
+        free(task->sufficient_parents_int);
     if(task->necessary_children)
         free(task->necessary_children);
     if(task->sufficient_children)
@@ -567,7 +612,8 @@ done:
  */
 static AXE_error_t
 AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
-    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
+    AXE_id_t task_id, AXE_task_op_t op, void *op_data,
+    AXE_task_free_op_data_t free_op_data)
 {
     _Bool is_task_mutex_init = FALSE;
     _Bool is_wait_cond_init = FALSE;
@@ -591,6 +637,7 @@ AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     (*task)->num_sufficient_parents = 0;
     (*task)->sufficient_parents = NULL;
     (*task)->op_data = op_data;
+    (*task)->id = task_id;
     OPA_Queue_header_init(&(*task)->scheduled_queue_hdr);
     (*task)->engine = engine;
     (*task)->free_op_data = free_op_data;
@@ -608,6 +655,8 @@ AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     OPA_store_int(&(*task)->rc, 1);
 
     /* Caller will initialize sufficient_complete and num_conditions_complete */
+    (*task)->necessary_parents_int = NULL;
+    (*task)->sufficient_parents_int = NULL;
     (*task)->num_necessary_children = 0;
     (*task)->necessary_children_nalloc = 0;
     (*task)->necessary_children = NULL;

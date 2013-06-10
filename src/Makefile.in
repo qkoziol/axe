@@ -103,8 +103,8 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(includedir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 libaxe_la_LIBADD =
-am_libaxe_la_OBJECTS = AXE.lo AXEengine.lo AXEschedule.lo AXEtask.lo \
-	AXEtest.lo AXEthreadpool.lo
+am_libaxe_la_OBJECTS = AXE.lo AXEengine.lo AXEid.lo AXEschedule.lo \
+	AXEtask.lo AXEtest.lo AXEthreadpool.lo
 libaxe_la_OBJECTS = $(am_libaxe_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -277,14 +277,16 @@ AM_CFLAGS = -Wall
 # Set the soversion number for the shared library
 libaxe_la_LDFLAGS = -version-info 1:0:0
 include_HEADERS = \
-	AXE.h
+	axe.h
 
 lib_LTLIBRARIES = libaxe.la
 libaxe_la_SOURCES = \
-	AXE.h \
+	axe.h \
 	AXE.c \
 	AXEengine.h \
 	AXEengine.c \
+	AXEid.h \
+	AXEid.c \
 	AXEprivate.h \
 	AXEschedule.h \
 	AXEschedule.c \
@@ -390,6 +392,7 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXE.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEengine.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEid.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEschedule.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEtask.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AXEtest.Plo@am__quote@

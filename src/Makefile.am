@@ -11,14 +11,16 @@ AM_CFLAGS = -Wall
 libaxe_la_LDFLAGS = -version-info 1:0:0
 
 include_HEADERS = \
-	AXE.h
+	axe.h
 
 lib_LTLIBRARIES = libaxe.la
 libaxe_la_SOURCES = \
-	AXE.h \
+	axe.h \
 	AXE.c \
 	AXEengine.h \
 	AXEengine.c \
+	AXEid.h \
+	AXEid.c \
 	AXEprivate.h \
 	AXEschedule.h \
 	AXEschedule.c \

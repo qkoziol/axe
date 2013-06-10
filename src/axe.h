@@ -10,6 +10,8 @@
 #ifndef AXE_H_INCLUDED
 #define AXE_H_INCLUDED
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -19,12 +21,20 @@ extern "C" {
  * Public typedefs
  */
 /* AXE_int_t - handle for an asynchronously executed task */
-typedef struct AXE_task_int_t AXE_task_int_t;
-typedef AXE_task_int_t *AXE_task_t;
+typedef uint64_t AXE_task_t;
 
 /* AXE_engine_t - handle for an asynchronous engine containing tasks */
 typedef struct AXE_engine_int_t AXE_engine_int_t;
 typedef AXE_engine_int_t *AXE_engine_t;
+
+/* Attribute struct for modifying engine creation parameters */
+typedef struct AXE_engine_attr_t {
+    size_t num_threads;         /* The number of threads used for task execution */
+    size_t num_buckets;         /* The number of buckets in the id table.  The hash function is simply id % num_buckets */
+    size_t num_mutexes;         /* The number of bucket mutexes in the id table */
+    AXE_task_t min_id;          /* Minimum id for automatically generated ids */
+    AXE_task_t max_id;          /* Maximum id for automatically generated ids */
+} AXE_engine_attr_t;
 
 /* The status of a task */
 typedef enum {
@@ -64,7 +74,7 @@ typedef enum {
  *
  * The operation routine will only be invoked once for each task, and has no
  * return value. */
-typedef void (*AXE_task_op_t)(size_t num_necessary_parents,
+typedef void (*AXE_task_op_t)(AXE_engine_t engine, size_t num_necessary_parents,
     AXE_task_t necessary_parents[], size_t num_sufficient_parents,
     AXE_task_t sufficient_parents[], void *op_data);
 
@@ -78,22 +88,44 @@ typedef void (*AXE_task_free_op_data_t)(void *op_data);
 /*
  * Public functions
  */
-AXE_error_t AXEcreate_engine(size_t num_threads, AXE_engine_t *engine/*out*/);
+AXE_error_t AXEengine_attr_init(AXE_engine_attr_t *attr);
+AXE_error_t AXEengine_attr_destroy(AXE_engine_attr_t *attr);
+AXE_error_t AXEset_num_threads(AXE_engine_attr_t *attr, size_t num_threads);
+AXE_error_t AXEget_num_threads(const AXE_engine_attr_t *attr,
+    size_t *num_threads);
+AXE_error_t AXEset_id_range(AXE_engine_attr_t *attr, AXE_task_t min_id,
+    AXE_task_t max_id);
+AXE_error_t AXEget_id_range(const AXE_engine_attr_t *attr, AXE_task_t *min_id,
+    AXE_task_t *max_id);
+AXE_error_t AXEset_num_id_buckets(AXE_engine_attr_t *attr, size_t num_buckets);
+AXE_error_t AXEget_num_id_buckets(const AXE_engine_attr_t *attr,
+    size_t *num_buckets);
+AXE_error_t AXEset_num_id_mutexes(AXE_engine_attr_t *attr, size_t num_mutexes);
+AXE_error_t AXEget_num_id_mutexes(const AXE_engine_attr_t *attr,
+    size_t *num_mutexes);
+AXE_error_t AXEcreate_engine(AXE_engine_t *engine/*out*/,
+    const AXE_engine_attr_t *attr);
 AXE_error_t AXEterminate_engine(AXE_engine_t engine, _Bool wait_all);
-AXE_error_t AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+AXE_error_t AXEgenerate_task_id(AXE_engine_t engine, AXE_task_t *task);
+AXE_error_t AXErelease_task_id(AXE_engine_t engine, AXE_task_t task);
+AXE_error_t AXEcreate_task(AXE_engine_t engine, AXE_task_t task,
     size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data);
-AXE_error_t AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+AXE_error_t AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t task,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data);
-AXE_error_t AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status);
+AXE_error_t AXEremove(AXE_engine_t engine, AXE_task_t task,
+    AXE_remove_status_t *remove_status);
 AXE_error_t AXEremove_all(AXE_engine_t engine,
     AXE_remove_status_t *remove_status);
-AXE_error_t AXEget_op_data(AXE_task_t task, void **op_data/*out*/);
-AXE_error_t AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/);
-AXE_error_t AXEwait(AXE_task_t task);
-AXE_error_t AXEfinish(AXE_task_t task);
-AXE_error_t AXEfinish_all(size_t num_tasks, AXE_task_t task[]);
+AXE_error_t AXEget_op_data(AXE_engine_t engine, AXE_task_t task,
+    void **op_data/*out*/);
+AXE_error_t AXEget_status(AXE_engine_t engine, AXE_task_t task,
+    AXE_status_t *status/*out*/);
+AXE_error_t AXEwait(AXE_engine_t engine, AXE_task_t task);
+AXE_error_t AXEfinish(AXE_engine_t engine, AXE_task_t task);
+AXE_error_t AXEfinish_all(AXE_engine_t engine, size_t num_tasks,
+    AXE_task_t task[]);
 AXE_error_t AXEbegin_try(void);
 AXE_error_t AXEend_try(void);
 

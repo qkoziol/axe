@@ -8,23 +8,94 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include "AXEengine.h"
+#include "AXEid.h"
 #include "AXEschedule.h"
 #include "AXEtask.h"
+#include "AXEthreadpool.h"
 
 
 /*
  * Global variables
  */
 OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of calls to AXE_begin_try() */
+const AXE_engine_attr_t AXE_engine_attr_def_g = {AXE_THREAD_POOL_NUM_THREADS_DEF, AXE_ID_NUM_BUCKETS_DEF, AXE_ID_NUM_MUTEXES_DEF, AXE_ID_MIN_ID_DEF, AXE_ID_MAX_ID_DEF}; /* Default engine creation attributes */
 
 
 /*-------------------------------------------------------------------------
- * Function:    AXEcreate_engine
+ * Function:    AXEengine_attr_init
  *
- * Purpose:     Create a new engine for asynchronous execution, with a
- *              thread pool containing the specified number of threads.
- *              An engine must be created before any tasks can be created.
- *              The engine will always create and maintain num_threads
+ * Purpose:     Initialize the provided engine attribute, setting default
+ *              values.  Must be called prior to use of the engine
+ *              attribute.
+ *
+ *              Engine attributes are not currently meant to be used
+ *              concurrently by multiple threads unless they are not
+ *              modified while being used concurrently.  If the
+ *              application wants to modify an attribute while it is being
+ *              used by another thread, it is the application's
+ *              responsibility to protect the attribute with a mutex.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEengine_attr_init(AXE_engine_attr_t *attr)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    memcpy(attr, &AXE_engine_attr_def_g, sizeof(*attr));
+
+done:
+    return ret_value;
+} /* end AXEengine_attr_init() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEengine_attr_destroy
+ *
+ * Purpose:     Destroys the engine attribute, freeing any memory used in
+ *              any internal fields.  Currently does nothing, but may be
+ *              necessary in a future version.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEengine_attr_destroy(AXE_engine_attr_t *attr)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    /* No-op for now */
+
+done:
+    return ret_value;
+} /* end AXEengine_attr_destroy() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_num_threads
+ *
+ * Purpose:     Sets the number of threads for the engine to use on the
+ *              provided engine attribute.  An engine created using this
+ *              attribute will always create and maintain num_threads
  *              threads, with no extra threads set aside to, for example,
  *              schedule tasks.  All task scheduling is done on-demand by
  *              application threads (in AXEcreate_task() and
@@ -39,8 +110,357 @@ OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of cal
  *              N tasks to run concurrently in order to proceed, it is
  *              safe to set num_threads to N.
  *
- *              The handle for the newly created engine is returned in
- *              *engine.
+ *              The default value is 8.  This could be added as a
+ *              configure option in a future version.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_num_threads(AXE_engine_attr_t *attr, size_t num_threads)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(num_threads == 0)
+        ERROR;
+
+    attr->num_threads = num_threads;
+
+done:
+    return ret_value;
+} /* end AXEset_num_threads() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_num_threads
+ *
+ * Purpose:     Gets the number of threads for the engine to use from the
+ *              provided engine attribute.  An engine created using this
+ *              attribute will always create and maintain num_threads
+ *              threads, with no extra threads set aside to, for example,
+ *              schedule tasks.  All task scheduling is done on-demand by
+ *              application threads (in AXEcreate_task() and
+ *              AXEcreate_barrier_task()) and by the task exection
+ *              threads.
+ *
+ *              It is guaranteed that there will always be exactly
+ *              num_threads available for execution (with the possibiliy
+ *              of a short wait if the thread is performing its scheduling
+ *              duties), until AXEterminate_engine() is called.
+ *              Therefore, if the application algorithm requires
+ *              N tasks to run concurrently in order to proceed, it is
+ *              safe to set num_threads to N.
+ *
+ *              The default value is 8.  This could be added as a
+ *              configure option in a future version.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_num_threads(const AXE_engine_attr_t *attr, size_t *num_threads)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(num_threads)
+        *num_threads = attr->num_threads;
+
+done:
+    return ret_value;
+} /* end AXEget_num_id_threads() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_id_range
+ *
+ * Purpose:     Sets the range of ids for automatic id generation on the
+ *              specified engine attribute.  All ids generated by
+ *              AXEgenerate_task_id() will fall between min_id and max_id
+ *              (inclusive).  If all ids in the range are in use,
+ *              AXEgenerate_task_id() will fail.
+ *
+ *              Care must be taken if mixing use of AXEgenerate_task_id()
+ *              with manual assignment of task ids, as it is possible that
+ *              AXEgenerate_task_id() could generate an id that the
+ *              application thinks is free.  It is probably a good idea to
+ *              manually assign ids from outside the range specified in
+ *              this function.
+ *
+ *              The default values are 0 and UINT64_MAX.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_id_range(AXE_engine_attr_t *attr, AXE_task_t min_id, AXE_task_t max_id)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(min_id > max_id)
+        ERROR;
+
+    attr->min_id = min_id;
+    attr->max_id = max_id;
+
+done:
+    return ret_value;
+} /* end AXEset_id_range() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_id_range
+ *
+ * Purpose:     Gets the range of ids for automatic id generation from the
+ *              specified engine attribute.  All ids generated by
+ *              AXEgenerate_task_id() will fall between min_id and max_id
+ *              (inclusive).  If all ids in the range are in use,
+ *              AXEgenerate_task_id() will fail.
+ *
+ *              Care must be taken if mixing use of AXEgenerate_task_id()
+ *              with manual assignment of task ids, as it is possible that
+ *              AXEgenerate_task_id() could generate an id that the
+ *              application thinks is free.  It is probably a good idea to
+ *              manually assign ids from outside the range specified in
+ *              this function.
+ *
+ *              The default values are 0 and UINT64_MAX.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_id_range(const AXE_engine_attr_t *attr, AXE_task_t *min_id,
+    AXE_task_t *max_id)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(min_id)
+        *min_id = attr->min_id;
+    if(max_id)
+        *max_id = attr->max_id;
+
+done:
+    return ret_value;
+} /* end AXEget_id_range() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_num_id_buckets
+ *
+ * Purpose:     Sets the number of buckets in the engine's id hash table
+ *              on the provided engine attribute.  The hash function is
+ *              simply id % num_buckets.
+ *
+ *              Setting a larger value for num_buckets will reduce the
+ *              number of hash value collisions, improving performance in
+ *              most cases, but will make iteration more expensive,
+ *              reducing performance for AXEcreate_engine(),
+ *              AXEterminate_engine(), AXEcreate_barrier_task(), and
+ *              AXEremove_all(), and will consume more memory.  Setting a
+ *              smaller value for num_buckets will have the opposite
+ *              effect.
+ *
+ *              The default value is 10007.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_num_id_buckets(AXE_engine_attr_t *attr, size_t num_buckets)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(num_buckets == 0)
+        ERROR;
+
+    attr->num_buckets = num_buckets;
+
+done:
+    return ret_value;
+} /* end AXEset_num_id_buckets() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_num_id_buckets
+ *
+ * Purpose:     Gets the number of buckets in the engine's id hash table
+ *              from the provided engine attribute.  The hash function is
+ *              simply id % num_buckets.
+ *
+ *              Setting a larger value for num_buckets will reduce the
+ *              number of hash value collisions, improving performance in
+ *              most cases, but will make iteration more expensive,
+ *              reducing performance for AXEcreate_engine(),
+ *              AXEterminate_engine(), AXEcreate_barrier_task(), and
+ *              AXEremove_all(), and will consume more memory.  Setting a
+ *              smaller value for num_buckets will have the opposite
+ *              effect.
+ *
+ *              The default value is 10007.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_num_id_buckets(const AXE_engine_attr_t *attr, size_t *num_buckets)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(num_buckets)
+        *num_buckets = attr->num_buckets;
+
+done:
+    return ret_value;
+} /* end AXEget_num_id_buckets() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEset_num_id_mutexes
+ *
+ * Purpose:     Sets the number of mutexes used to protect id hash buckets
+ *              on the provided engine attribute.  Each hash bucket uses
+ *              its mutex to prevent simultaneous to elements in the
+ *              bucket (except in some cases where it is allowed).  The
+ *              index of the mutex used by a hash bucket is given by
+ *              bucket_index % num_mutexes.
+ *
+ *              Setting a larger value for num_mutexes will reduce
+ *              contention for the mutexes, improving performance, but
+ *              will consume more memory.  Setting a smaller value for
+ *              num_mutexes will have the opposite effect.  There is no
+ *              benefit to setting num_mutexes to a value larger than
+ *              num_buckets.
+ *
+ *              The default value is 503.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEset_num_id_mutexes(AXE_engine_attr_t *attr, size_t num_mutexes)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+    if(num_mutexes == 0)
+        ERROR;
+
+    attr->num_mutexes = num_mutexes;
+
+done:
+    return ret_value;
+} /* end AXEset_num_id_mutexes() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEget_num_id_mutexes
+ *
+ * Purpose:     Gets the number of mutexes used to protect id hash buckets
+ *              from the provided engine attribute.  Each hash bucket uses
+ *              its mutex to prevent simultaneous to elements in the
+ *              bucket (except in some cases where it is allowed).  The
+ *              index of the mutex used by a hash bucket is given by
+ *              bucket_index % num_mutexes.
+ *
+ *              Setting a larger value for num_mutexes will reduce
+ *              contention for the mutexes, improving performance, but
+ *              will consume more memory.  Setting a smaller value for
+ *              num_mutexes will have the opposite effect.  There is no
+ *              benefit to setting num_mutexes to a value larger than
+ *              num_buckets.
+ *
+ *              The default value is 503.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 19, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEget_num_id_mutexes(const AXE_engine_attr_t *attr, size_t *num_mutexes)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!attr)
+        ERROR;
+
+    if(num_mutexes)
+        *num_mutexes = attr->num_mutexes;
+
+done:
+    return ret_value;
+} /* end AXEget_num_id_mutexes() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXEcreate_engine
+ *
+ * Purpose:     Create a new engine for asynchronous execution, with the
+ *              attributes for the engine specified by attr (if present)
+ *              or default (if NULL).  The handle for the newly created
+ *              engine is returned in *engine.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
@@ -51,18 +471,16 @@ OPA_int_t AXE_quiet_g = OPA_INT_T_INITIALIZER(0); /* Ref count for number of cal
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEcreate_engine(size_t num_threads, AXE_engine_t *engine/*out*/)
+AXEcreate_engine(AXE_engine_t *engine/*out*/, const AXE_engine_attr_t *attr)
 {
     AXE_engine_int_t *int_engine = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
-    if(num_threads == 0)
-        ERROR;
     if(!engine)
         ERROR;
 
-    if(AXE_engine_create(num_threads, &int_engine) != AXE_SUCCEED)
+    if(AXE_engine_create(&int_engine, attr ? attr : &AXE_engine_attr_def_g) != AXE_SUCCEED)
         ERROR;
 
     *engine = int_engine;
@@ -127,6 +545,89 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    AXEgenerate_task_id
+ *
+ * Purpose:     Generate a task id that can be used in a subsequent call
+ *              to AXEcreate_task() or AXEcreate_barrier_task().  The id
+ *              will be between the min_id and max_id parameters given to
+ *              AXEengine_attr_id_range().  The id is returned in *task.
+ *              The id must never be reused, even if AXEfinish() or
+ *              AXEfinish_all() is called on the task, unless it is
+ *              returned by another call to AXEgenerate_task_id().  If the
+ *              id is no longer needed and has not been used it can be
+ *              released with AXErelease_task_id().
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 16, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXEgenerate_task_id(AXE_engine_t engine, AXE_task_t *task)
+{
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!engine)
+        ERROR;
+    if(!task)
+        ERROR;
+
+    /* Generate task id */
+    if(AXE_id_generate(engine->id_table, (AXE_id_t *)task) != AXE_SUCCEED)
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXEgenerate_task_id() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXErelease_task_id
+ *
+ * Purpose:     Release the specified task id back to the engine, allowing
+ *              it to be reused.  The task must have been previously
+ *              generated by AXEgenerate_task_id(), and must not have been
+ *              used to create a task.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 16, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXErelease_task_id(AXE_engine_t engine, AXE_task_t task)
+{
+    void *obj;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!engine)
+        ERROR;
+
+    /* Lookup the id, to make sure it is present and has not been
+     * associated with a task */
+    if(AXE_id_lookup(engine->id_table, task, &obj) != AXE_SUCCEED)
+        ERROR;
+    if(obj)
+        ERROR;
+
+    /* Release task id */
+    if(AXE_id_remove(engine->id_table, task) != AXE_SUCCEED)
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXErelease_task_id() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    AXEcreate_task
  *
  * Purpose:     Create a new task in the engine identified by engine,
@@ -153,17 +654,15 @@ done:
  *              references to the new task are released (with AXEfinish*)
  *              and the task is no longer needed by the engine.
  *
- *              The handle for the newly created task is returned in
- *              *task.  If the application does not need a task handle,
- *              task can be set to NULL and the engine will remove the
- *              task and call free_op_data as soon as it is no longer
- *              needed.  The handle returned in *task is ready to be used
- *              as soon as either this function returns or the task's op
- *              function is called.  Therefore it is safe, for example, to
- *              store the task handle in a field in op_data and pass the
- *              address of that field to this function.  It is also safe,
- *              in that situation, to call AXEfinish() within that task's
- *              op function.
+ *              The task id is provided by the application in the task
+ *              parameter.  This can be generated by the application or by
+ *              AXEgenerate_task_id().  Applications must use caution when
+ *              mixing both methods for id creation to make sure the same
+ *              id is not used twice.  In this case, it may be prudent to
+ *              define a range for automatic id generation using
+ *              AXEengine_attr_id_range() and manually generate id outside
+ *              that range.  task must not be reused, even if this
+ *              function fails.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
@@ -174,12 +673,11 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
+AXEcreate_task(AXE_engine_t engine, AXE_task_t task,
     size_t num_necessary_parents, AXE_task_t necessary_parents[],
     size_t num_sufficient_parents, AXE_task_t sufficient_parents[],
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
-    AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
@@ -190,29 +688,9 @@ AXEcreate_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
     if(num_sufficient_parents > 0 && !sufficient_parents)
         ERROR;
 
-    /* If the caller requested a handle, pass the caller's pointer directly to
-     * the internal functions, so the handle is available by the time the task
-     * launches. */
-    if(!task)
-        task = &int_task;
-
     /* Create task */
-    if(AXE_task_create(engine, task, num_necessary_parents, necessary_parents, num_sufficient_parents, sufficient_parents, op, op_data, free_op_data) != AXE_SUCCEED)
+    if(AXE_task_create(engine, (AXE_id_t)task, num_necessary_parents, necessary_parents, num_sufficient_parents, sufficient_parents, op, op_data, free_op_data) != AXE_SUCCEED)
         ERROR;
-    assert(*task);
-
-    /* If the caller did not request a handle, decrement the reference count
-     * because we will throw away our task pointer. */
-    if(int_task) {
-#ifdef AXE_DEBUG_REF
-        printf("AXEcreate_task: decr ref: %p", int_task);
-#endif /* AXE_DEBUG_REF */
-        assert(*task == int_task);
-        if(AXE_task_decr_ref(int_task, NULL) != AXE_SUCCEED)
-            ERROR;
-    } /* end if */
-    else
-        assert(*task != int_task);
 
 done:
     return ret_value;
@@ -222,7 +700,7 @@ done:
 /*-------------------------------------------------------------------------
  * Function:    AXEcreate_barrier_task
  *
- * Purpose:     Create a task in the engine identified by engine with a
+ * Purpose:     fCreate a task in the engine identified by engine with a
  *              necessary parent dependency on all the current leaf nodes
  *              of the engine’s DAG.  In other words, this task serves as
  *              a synchronization point for all the current tasks in the
@@ -238,17 +716,15 @@ done:
  *              new task are released (with AXEfinish*) and the task is no
  *              longer needed by the engine.
  *
- *              The handle for the newly created task is returned in
- *              *task.  If the application does not need a task handle,
- *              task can be set to NULL and the engine will remove the
- *              task and call free_op_data as soon as it is no longer
- *              needed.  The handle returned in *task is ready to be used
- *              as soon as either this function returns or the task's op
- *              function is called.  Therefore it is safe, for example, to
- *              store the task handle in a field in op_data and pass the
- *              address of that field to this function.  It is also safe,
- *              in that situation, to call AXEfinish() within that task's
- *              op function.
+ *              The task id is provided by the application in the task
+ *              parameter.  This can be generated by the application or by
+ *              AXEgenerate_task_id().  Applications must use caution when
+ *              mixing both methods for id creation to make sure the same
+ *              id is not used twice.  In this case, it may be prudent to
+ *              define a range for automatic id generation using
+ *              AXEengine_attr_id_range() and manually generate id outside
+ *              that range.  task must not be reused, even if this
+ *              function fails.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
@@ -259,39 +735,18 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t *task/*out*/,
-    AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
+AXEcreate_barrier_task(AXE_engine_t engine, AXE_task_t task, AXE_task_op_t op,
+    void *op_data, AXE_task_free_op_data_t free_op_data)
 {
-    AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
     if(!engine)
         ERROR;
 
-    /* If the caller requested a handle, pass the caller's pointer directly to
-     * the internal functions, so the handle is available by the time the task
-     * launches. */
-    if(!task)
-        task = &int_task;
-
     /* Create barrier task */
-    if(AXE_task_create_barrier(engine, task, op, op_data, free_op_data) != AXE_SUCCEED)
+    if(AXE_task_create_barrier(engine, (AXE_id_t)task, op, op_data, free_op_data) != AXE_SUCCEED)
         ERROR;
-    assert(*task);
-
-    /* If the caller did not request a handle, decrement the reference count
-     * because we will throw away our task pointer. */
-    if(int_task) {
-#ifdef AXE_DEBUG_REF
-        printf("AXEcreate_barrier_task: decr ref: %p", int_task);
-#endif /* AXE_DEBUG_REF */
-        assert(*task == int_task);
-        if(AXE_task_decr_ref(int_task, NULL) != AXE_SUCCEED)
-            ERROR;
-    } /* end if */
-    else
-        assert(*task != int_task);
 
 done:
     return ret_value;
@@ -327,16 +782,23 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEremove(AXE_task_t task, AXE_remove_status_t *remove_status)
+AXEremove(AXE_engine_t engine, AXE_task_t task,
+    AXE_remove_status_t *remove_status)
 {
+    AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
-    /* Check parameters */
-    if(!task)
+    /* Look up task */
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+        ERROR;
+
+    /* Check if task is NULL (indicates id was generated but task was never
+     * created) */
+    if(!int_task)
         ERROR;
 
     /* Cancel task */
-    if(AXE_task_cancel_leaf(task, remove_status) != AXE_SUCCEED)
+    if(AXE_task_cancel_leaf(int_task, remove_status) != AXE_SUCCEED)
         ERROR;
 
 done:
@@ -377,7 +839,7 @@ AXEremove_all(AXE_engine_t engine, AXE_remove_status_t *remove_status)
         ERROR;
 
     /* Cancel all tasks */
-    if(AXE_schedule_cancel_all(((AXE_engine_int_t *)engine)->schedule, remove_status) != AXE_SUCCEED)
+    if(AXE_schedule_cancel_all(((AXE_engine_int_t *)engine)->schedule, ((AXE_engine_int_t *)engine)->id_table, remove_status) != AXE_SUCCEED)
         ERROR;
 
 done:
@@ -401,18 +863,26 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEget_op_data(AXE_task_t task, void **op_data/*out*/)
+AXEget_op_data(AXE_engine_t engine, AXE_task_t task, void **op_data/*out*/)
 {
+    AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
-    if(!task)
-        ERROR;
     if(!op_data)
         ERROR;
 
+    /* Look up task */
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+        ERROR;
+
+    /* Check if task is NULL (indicates id was generated but task was never
+     * created) */
+    if(!int_task)
+        ERROR;
+
     /* Get op data */
-    AXE_task_get_op_data(task, op_data);
+    AXE_task_get_op_data(int_task, op_data);
 
 done:
     return ret_value;
@@ -435,14 +905,22 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/)
+AXEget_status(AXE_engine_t engine, AXE_task_t task, AXE_status_t *status/*out*/)
 {
+    AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
-    if(!task)
-        ERROR;
     if(!status)
+        ERROR;
+
+    /* Look up task */
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+        ERROR;
+
+    /* Check if task is NULL (indicates id was generated but task was never
+     * created) */
+    if(!int_task)
         ERROR;
 
     /* Use read/write barriers before and after we retrieve the status, in case
@@ -451,7 +929,7 @@ AXEget_status(AXE_task_t task, AXE_status_t *status/*out*/)
     OPA_read_write_barrier();
 
     /* Get op data */
-    AXE_task_get_status(task, status);
+    AXE_task_get_status(int_task, status);
 
     /* Read/write barrier, see above */
     OPA_read_write_barrier();
@@ -482,16 +960,22 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEwait(AXE_task_t task)
+AXEwait(AXE_engine_t engine, AXE_task_t task)
 {
+    AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
-    /* Check parameters */
-    if(!task)
+    /* Look up task */
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+        ERROR;
+
+    /* Check if task is NULL (indicates id was generated but task was never
+     * created) */
+    if(!int_task)
         ERROR;
 
     /* Wait for task to complete */
-    if(AXE_task_wait(task) != AXE_SUCCEED)
+    if(AXE_task_wait(int_task) != AXE_SUCCEED)
         ERROR;
 
 done:
@@ -520,12 +1004,18 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEfinish(AXE_task_t task)
+AXEfinish(AXE_engine_t engine, AXE_task_t task)
 {
+    AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
-    /* Check parameters */
-    if(!task)
+    /* Look up task */
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+        ERROR;
+
+    /* Check if task is NULL (indicates id was generated but task was never
+     * created) */
+    if(!int_task)
         ERROR;
 
     /* Decrement reference count on task, it will be freed if it drops to zero
@@ -533,7 +1023,7 @@ AXEfinish(AXE_task_t task)
 #ifdef AXE_DEBUG_REF
     printf("AXEfinish: decr ref: %p", task);
 #endif /* AXE_DEBUG_REF */
-    if(AXE_task_decr_ref(task, NULL) != AXE_SUCCEED)
+    if(AXE_task_decr_ref(int_task, NULL) != AXE_SUCCEED)
         ERROR;
 
 done:
@@ -562,8 +1052,9 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEfinish_all(size_t num_tasks, AXE_task_t task[])
+AXEfinish_all(AXE_engine_t engine, size_t num_tasks, AXE_task_t task[])
 {
+    AXE_task_int_t *int_task = NULL;
     size_t i;
     AXE_error_t ret_value = AXE_SUCCEED;
 
@@ -573,8 +1064,13 @@ AXEfinish_all(size_t num_tasks, AXE_task_t task[])
 
     /* Iterate over all tasks */
     for(i = 0; i < num_tasks; i++) {
-        /* Check that task exists */
-        if(!task[i])
+        /* Look up task */
+        if(AXE_id_lookup(engine->id_table, task[i], (void **)(void *)&int_task) != AXE_SUCCEED)
+            ERROR;
+
+        /* Check if task is NULL (indicates id was generated but task was never
+         * created) */
+        if(!int_task)
             ERROR;
 
         /* Decrement reference count on task, it will be freed if it drops to zero
@@ -582,7 +1078,7 @@ AXEfinish_all(size_t num_tasks, AXE_task_t task[])
 #ifdef AXE_DEBUG_REF
     printf("AXEfinish_all: decr ref: %p", task);
 #endif /* AXE_DEBUG_REF */
-        if(AXE_task_decr_ref(task[i], NULL) != AXE_SUCCEED)
+        if(AXE_task_decr_ref(int_task, NULL) != AXE_SUCCEED)
             ret_value = AXE_FAIL;
     } /* end for */
 

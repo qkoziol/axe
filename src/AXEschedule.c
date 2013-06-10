@@ -8,6 +8,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include "AXEengine.h"
+#include "AXEid.h"
 #include "AXEschedule.h"
 #include "AXEtask.h"
 #include "AXEthreadpool.h"
@@ -23,9 +24,6 @@ struct AXE_schedule_t {
     OPA_int_t               num_tasks;              /* # of tasks in scheduler */
     pthread_cond_t          wait_all_cond;          /* Condition variable for waiting for all tasks to complete */
     pthread_mutex_t         wait_all_mutex;         /* Mutex for waiting for all tasks to complete */
-    AXE_task_int_t          task_list_sentinel;     /* Sentinel for task list (head and tail) */
-    pthread_mutex_t         task_list_mutex;        /* Mutex for task list.  Must not be taken while holding a task mutex! */
-    _Bool                   exclude_close;          /* Whether to fail if tasks still exist when closing.  Used for testing. */
 #ifdef AXE_DEBUG_NTASKS
     OPA_int_t               nadds;
     OPA_int_t               nenqueues;
@@ -35,10 +33,18 @@ struct AXE_schedule_t {
 #endif /* AXE_DEBUG_NTASKS */
 };
 
+/* Operator data structure for AXE_schedule_add_barrier() */
+typedef struct AXE_schedule_add_barrier_od_t {
+    AXE_task_int_t *task;
+    size_t necessary_parents_nalloc;
+} AXE_schedule_add_barrier_od_t;
+
 
 /*
  * Local functions
  */
+static AXE_error_t AXE_schedule_cancel_all_cb(void *_task,
+    void *_remove_status);
 static AXE_error_t AXE_schedule_add_common(AXE_task_int_t *task);
 
 
@@ -71,7 +77,6 @@ AXE_schedule_create(AXE_schedule_t **schedule/*out*/)
     _Bool is_queue_mutex_init = FALSE;
     _Bool is_wait_all_cond_init = FALSE;
     _Bool is_wait_all_mutex_init = FALSE;
-    _Bool is_task_list_mutex_init = FALSE;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     *schedule = NULL;
@@ -101,19 +106,6 @@ AXE_schedule_create(AXE_schedule_t **schedule/*out*/)
         ERROR;
     is_wait_all_mutex_init = TRUE;
 
-    /* Initialize task list sentinel (other fields of sentinel are not used and
-     * can be left uninitialized) */
-    (*schedule)->task_list_sentinel.task_list_next = &(*schedule)->task_list_sentinel;
-    (*schedule)->task_list_sentinel.task_list_prev = &(*schedule)->task_list_sentinel;
-
-    /* Initialize task list mutex */
-    if(0 != pthread_mutex_init(&(*schedule)->task_list_mutex, NULL))
-        ERROR;
-    is_task_list_mutex_init = TRUE;
-
-    /* Initialize exclude_close */
-    (*schedule)->exclude_close = FALSE;
-
 #ifdef AXE_DEBUG_NTASKS
     OPA_store_int(&(*schedule)->nadds, 0);
     OPA_store_int(&(*schedule)->nenqueues, 0);
@@ -131,8 +123,6 @@ done:
                 (void)pthread_cond_destroy(&(*schedule)->wait_all_cond);
             if(is_wait_all_mutex_init)
                 (void)pthread_mutex_destroy(&(*schedule)->wait_all_mutex);
-            if(is_task_list_mutex_init)
-                (void)pthread_mutex_destroy(&(*schedule)->task_list_mutex);
             free(*schedule);
             *schedule = NULL;
         } /* end if */
@@ -165,7 +155,7 @@ AXE_schedule_add(AXE_task_int_t *task)
     assert(task);
     assert(task->engine);
     assert((AXE_status_t)OPA_load_int(&task->status) == AXE_WAITING_FOR_PARENT);
-    assert(!task->sufficient_parents == (_Bool)OPA_load_int(&task->sufficient_complete));
+    assert(!task->sufficient_parents_int == (_Bool)OPA_load_int(&task->sufficient_complete));
 
     /* Increment the reference count on the task due to it being placed in the
      * scheduler */
@@ -181,7 +171,7 @@ AXE_schedule_add(AXE_task_int_t *task)
 
     /* Loop over necessary parents, adding this task as a child to each */
     for(i = 0; i < task->num_necessary_parents; i++) {
-        parent_task = task->necessary_parents[i];
+        parent_task = task->necessary_parents_int[i];
 
         /* Increment reference count on parent task */
 #ifdef AXE_DEBUG_REF
@@ -266,7 +256,7 @@ AXE_schedule_add(AXE_task_int_t *task)
 
     /* Loop over sufficient parents, adding this task as a child to each */
     for(i = 0; i < task->num_sufficient_parents; i++) {
-        parent_task = task->sufficient_parents[i];
+        parent_task = task->sufficient_parents_int[i];
 
         /* Increment reference count on parent task */
 #ifdef AXE_DEBUG_REF
@@ -365,6 +355,136 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_add_barrier_cb
+ *
+ * Purpose:     Callback function for AXE_schedule_add_barrier() (via
+ *              AXE_id_iterate()).  Adds the task from the id table
+ *              iteration as a parent of the task provided through the
+ *              op_data parameter.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April 16, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+static AXE_error_t
+AXE_schedule_add_barrier_cb(void *_parent_task, void *_op_data)
+{
+    AXE_task_int_t *parent_task = (AXE_task_int_t *)_parent_task;
+    AXE_schedule_add_barrier_od_t *op_data = (AXE_schedule_add_barrier_od_t *)_op_data;
+    AXE_task_int_t *task;
+    AXE_status_t parent_status;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(parent_task);
+    assert(op_data);
+
+    task = op_data->task;
+
+    assert(task);
+
+    /* Acquire parent task mutex */
+#ifdef AXE_DEBUG_LOCK
+    printf("AXE_schedule_add_barrier_cb: lock task_mutex: %p\n", &parent_task->task_mutex); fflush(stdout);
+#endif /* AXE_DEBUG_LOCK */
+    if(0 != pthread_mutex_lock(&parent_task->task_mutex))
+        ERROR;
+
+    /* Load parent task status */
+    parent_status = OPA_load_int(&parent_task->status);
+
+    /* If the task is not canceled or done, and it has no necessary
+     * children, add it as a parent of the barrier task.  Okay for checks of
+     * these conditions to not be atomic (except load of status), because
+     * changing status to done or canceled and modifying or iterating over
+     * child arrays occurs while holding the task mutex. */
+    if((parent_status != AXE_TASK_DONE)
+            && (parent_status != AXE_TASK_CANCELED)
+            && (parent_task->num_necessary_children == 0)) {
+        /* Add barrier task to parent's child task list */
+        if(parent_task->num_necessary_children
+                == parent_task->necessary_children_nalloc) {
+            /* Grow/alloc array */
+            if(parent_task->necessary_children_nalloc) {
+                assert(parent_task->necessary_children);
+                if(NULL == (parent_task->necessary_children = (AXE_task_int_t **)realloc(parent_task->necessary_children, 2 * parent_task->necessary_children_nalloc * sizeof(AXE_task_int_t *)))) {
+                    (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                    ERROR;
+                } /* end if */
+                parent_task->necessary_children_nalloc *= 2;
+            } /* end if */
+            else {
+                assert(!parent_task->necessary_children);
+                if(NULL == (parent_task->necessary_children = (AXE_task_int_t **)malloc(AXE_TASK_NCHILDREN_INIT * sizeof(AXE_task_int_t *)))) {
+                    (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                    ERROR;
+                } /* end if */
+                parent_task->necessary_children_nalloc = AXE_TASK_NCHILDREN_INIT;
+            } /* end else */
+        } /* end if */
+        assert(parent_task->necessary_children_nalloc > parent_task->num_necessary_children);
+
+        /* Increment reference count on barrier task, so it does not get
+         * freed before necessary parent finishes.  This could only happen
+         * if the child gets cancelled/removed. */
+#ifdef AXE_DEBUG_REF
+        printf("AXE_schedule_add_barrier_cb: incr ref: %p from nec_par", task); fflush(stdout);
+#endif /* AXE_DEBUG_REF */
+        AXE_task_incr_ref(task);
+
+        /* Add to list */
+        parent_task->necessary_children[parent_task->num_necessary_children] = task;
+        parent_task->num_necessary_children++;
+
+        /* Add parent task to barrier's necessary parent task list */
+        if(task->num_necessary_parents == op_data->necessary_parents_nalloc) {
+            /* Grow/alloc array */
+            if(op_data->necessary_parents_nalloc) {
+                assert(task->necessary_parents_int);
+                if(NULL == (task->necessary_parents_int = (AXE_task_int_t **)realloc(task->necessary_parents_int, 2 * op_data->necessary_parents_nalloc * sizeof(AXE_task_int_t *)))) {
+                    (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                    ERROR;
+                } /* end if */
+                op_data->necessary_parents_nalloc *= 2;
+            } /* end if */
+            else {
+                assert(!task->necessary_parents_int);
+                if(NULL == (task->necessary_parents_int = (AXE_task_int_t **)malloc(AXE_TASK_NCHILDREN_INIT * sizeof(AXE_task_int_t *)))) {
+                    (void)pthread_mutex_unlock(&parent_task->task_mutex);
+                    ERROR;
+                } /* end if */
+                op_data->necessary_parents_nalloc = AXE_TASK_NCHILDREN_INIT;
+            } /* end else */
+        } /* end if */
+        assert(op_data->necessary_parents_nalloc > task->num_necessary_parents);
+
+        /* Increment reference count on parent task */
+#ifdef AXE_DEBUG_REF
+        printf("AXE_schedule_add_barrier_cb: incr ref: %p nec_par", parent_task); fflush(stdout);
+#endif /* AXE_DEBUG_REF */
+        AXE_task_incr_ref(parent_task);
+
+        /* Add to list */
+        task->necessary_parents_int[task->num_necessary_parents] = parent_task;
+        task->num_necessary_parents++;
+    } /* end if */
+
+    /* Release parent task mutex */
+#ifdef AXE_DEBUG_LOCK
+    printf("AXE_schedule_add_barrier_cb: unlock task_mutex: %p\n", &parent_task->task_mutex); fflush(stdout);
+#endif /* AXE_DEBUG_LOCK */
+    if(0 != pthread_mutex_unlock(&parent_task->task_mutex))
+        ERROR;
+
+done:
+    return ret_value;
+} /* end AXE_schedule_add_barrier_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    AXE_schedule_add_barrier
  *
  * Purpose:     Adds the specified task as a barrier task to the schedule.
@@ -383,20 +503,15 @@ done:
 AXE_error_t
 AXE_schedule_add_barrier(AXE_task_int_t *task)
 {
-    AXE_task_int_t *parent_task;
-    AXE_status_t parent_status;
-    AXE_schedule_t *schedule;
-    size_t necessary_parents_nalloc = 0;
+    AXE_schedule_add_barrier_od_t op_data;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
     assert(task->engine);
     assert((AXE_status_t)OPA_load_int(&task->status) == AXE_WAITING_FOR_PARENT);
     assert(task->num_sufficient_parents == 0);
-    assert(!task->sufficient_parents);
+    assert(!task->sufficient_parents_int);
     assert(OPA_load_int(&task->sufficient_complete) == TRUE);
-
-    schedule = task->engine->schedule;
 
     /* Increment the reference count on the task due to it being placed in the
      * scheduler */
@@ -406,121 +521,17 @@ AXE_schedule_add_barrier(AXE_task_int_t *task)
     AXE_task_incr_ref(task);
 
     /* Note that a write barrier is only not necessary here because other
-     * threads can only reach this task if this thread takes a mutex, implying a
-     * barrier.  If we ever remove the mutex we will need a write barrier before
-     * this task is added to a child array. */
+     * threads can only reach this task if this thread takes a mutex (in
+     * AXE_id_iterate()), implying a barrier.  If we ever remove the mutex we
+     * will need a write barrier before this task is added to a child array. */
 
-    /* Acquire task list mutex.  We take task mutexes while holding this one.
-     * the task list mutex must never (anywhere) be taken while holding a task
-     * mutex. */
-    if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
-        ERROR;
+    /* Initialize op_data */
+    op_data.task = task;
+    op_data.necessary_parents_nalloc = 0;
 
-    /* Iterate over all tasks in the scheduler, checking if they should be
-     * parents of the barrier task */
-    for(parent_task = schedule->task_list_sentinel.task_list_next;
-            parent_task != &schedule->task_list_sentinel;
-            parent_task = parent_task->task_list_next) {
-        /* Acquire parent task mutex */
-#ifdef AXE_DEBUG_LOCK
-        printf("AXE_schedule_add_barrier: lock task_mutex: %p\n", &parent_task->task_mutex); fflush(stdout);
-#endif /* AXE_DEBUG_LOCK */
-        if(0 != pthread_mutex_lock(&parent_task->task_mutex))
-            ERROR;
-
-        /* Load parent task status */
-        parent_status = OPA_load_int(&parent_task->status);
-
-        /* If the task is not canceled or done, and it has no necessary
-         * children, add it as a parent of the barrier task.  Okay for checks of
-         * these conditions to not be atomic (except load of status), because
-         * changing status to done or canceled and modifying or iterating over
-         * child arrays occurs while holding the task mutex. */
-        if((parent_status != AXE_TASK_DONE)
-                && (parent_status != AXE_TASK_CANCELED)
-                && (parent_task->num_necessary_children == 0)) {
-            /* Add barrier task to parent's child task list */
-            if(parent_task->num_necessary_children
-                    == parent_task->necessary_children_nalloc) {
-                /* Grow/alloc array */
-                if(parent_task->necessary_children_nalloc) {
-                    assert(parent_task->necessary_children);
-                    if(NULL == (parent_task->necessary_children = (AXE_task_int_t **)realloc(parent_task->necessary_children, 2 * parent_task->necessary_children_nalloc * sizeof(AXE_task_int_t *)))) {
-                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
-                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
-                        ERROR;
-                    } /* end if */
-                    parent_task->necessary_children_nalloc *= 2;
-                } /* end if */
-                else {
-                    assert(!parent_task->necessary_children);
-                    if(NULL == (parent_task->necessary_children = (AXE_task_int_t **)malloc(AXE_TASK_NCHILDREN_INIT * sizeof(AXE_task_int_t *)))) {
-                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
-                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
-                        ERROR;
-                    } /* end if */
-                    parent_task->necessary_children_nalloc = AXE_TASK_NCHILDREN_INIT;
-                } /* end else */
-            } /* end if */
-            assert(parent_task->necessary_children_nalloc > parent_task->num_necessary_children);
-
-            /* Increment reference count on barrier task, so it does not get
-             * freed before necessary parent finishes.  This could only happen
-             * if the child gets cancelled/removed. */
-#ifdef AXE_DEBUG_REF
-            printf("AXE_schedule_add_barrier: incr ref: %p from nec_par", task); fflush(stdout);
-#endif /* AXE_DEBUG_REF */
-            AXE_task_incr_ref(task);
-
-            /* Add to list */
-            parent_task->necessary_children[parent_task->num_necessary_children] = task;
-            parent_task->num_necessary_children++;
-
-            /* Add parent task to barrier's necessary parent task list */
-            if(task->num_necessary_parents == necessary_parents_nalloc) {
-                /* Grow/alloc array */
-                if(necessary_parents_nalloc) {
-                    assert(task->necessary_parents);
-                    if(NULL == (task->necessary_parents = (AXE_task_int_t **)realloc(task->necessary_parents, 2 * necessary_parents_nalloc * sizeof(AXE_task_int_t *)))) {
-                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
-                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
-                        ERROR;
-                    } /* end if */
-                    necessary_parents_nalloc *= 2;
-                } /* end if */
-                else {
-                    assert(!task->necessary_parents);
-                    if(NULL == (task->necessary_parents = (AXE_task_int_t **)malloc(AXE_TASK_NCHILDREN_INIT * sizeof(AXE_task_int_t *)))) {
-                        (void)pthread_mutex_unlock(&parent_task->task_mutex);
-                        (void)pthread_mutex_unlock(&schedule->task_list_mutex);
-                        ERROR;
-                    } /* end if */
-                    necessary_parents_nalloc = AXE_TASK_NCHILDREN_INIT;
-                } /* end else */
-            } /* end if */
-            assert(necessary_parents_nalloc > task->num_necessary_parents);
-
-            /* Increment reference count on parent task */
-#ifdef AXE_DEBUG_REF
-            printf("AXE_schedule_add_barrier: incr ref: %p nec_par", parent_task); fflush(stdout);
-#endif /* AXE_DEBUG_REF */
-            AXE_task_incr_ref(parent_task);
-
-            /* Add to list */
-            task->necessary_parents[task->num_necessary_parents] = parent_task;
-            task->num_necessary_parents++;
-        } /* end if */
-
-        /* Release parent task mutex */
-#ifdef AXE_DEBUG_LOCK
-        printf("AXE_schedule_add_barrier: unlock task_mutex: %p\n", &parent_task->task_mutex); fflush(stdout);
-#endif /* AXE_DEBUG_LOCK */
-        if(0 != pthread_mutex_unlock(&parent_task->task_mutex))
-            ERROR;
-    } /* end for */
-
-    /* Release task list mutex */
-    if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
+    /* Iterate over all tasks in the engine, checking if they should be parents
+     * of the barrier task */
+    if(AXE_id_iterate(task->engine->id_table, AXE_schedule_add_barrier_cb, &op_data) != AXE_SUCCEED)
         ERROR;
 
     /* Finish adding the task to the schedule */
@@ -634,8 +645,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 
         /* Decrement ref count on child.  Need to delay freeing the child if the
          * ref count drops to zero because we hold a task mutex and freeing the
-         * task takes the task list mutex, which could cause a deadlock as some
-         * functions take task mutexes while holding the task list mutex. */
+         * task enters the id package, which takes a bucket mutex, which could
+         * cause a deadlock as other functions takes a task mutex while holding
+         * a bucket mutex (as a callback for AXE_id_iterate(). */
 #ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p nec", child_task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
@@ -699,8 +711,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 
         /* Decrement ref count on child.  Need to delay freeing the child if the
          * ref count drops to zero because we hold a task mutex and freeing the
-         * task takes the task list mutex, which could cause a deadlock as some
-         * functions take task mutexes while holding the task list mutex. */
+         * task enters the id package, which takes a bucket mutex, which could
+         * cause a deadlock as other functions takes a task mutex while holding
+         * a bucket mutex (as a callback for AXE_id_iterate(). */
 #ifdef AXE_DEBUG_REF
         printf("AXE_schedule_finish: decr ref: %p suf", child_task); fflush(stdout);
 #endif /* AXE_DEBUG_REF */
@@ -776,7 +789,7 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
     while(free_list_head) {
         child_task = free_list_head;
         free_list_head = child_task->free_list_next;
-        if(AXE_task_free(child_task) != AXE_SUCCEED)
+        if(AXE_task_free(child_task, TRUE) != AXE_SUCCEED)
             ERROR;
     } /* end while */
 
@@ -923,12 +936,9 @@ AXE_error_t
 AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
     _Bool have_task_mutex)
 {
-    AXE_schedule_t *schedule;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
-
-    schedule = task->engine->schedule;
 
     /* Lock task mutex if we do not already have it */
     if(!have_task_mutex) {
@@ -990,6 +1000,49 @@ done:
 
 
 /*-------------------------------------------------------------------------
+ * Function:    AXE_schedule_cancel_all_cb
+ *
+ * Purpose:     Callback function for AXE_schedule_cancel_all() (via
+ *              AXE_id_iterate()).  Cancels the provided task and updates
+ *              the remove status.  Not that this function takes a task
+ *              mutex (in AXE_schedule_cancel()) while AXE_id_iterate()
+ *              holds a bucket mutex, so no AXE_id* functions should be
+ *              called while holding a task mutex.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              April, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+static AXE_error_t
+AXE_schedule_cancel_all_cb(void *_task, void *_remove_status)
+{
+    AXE_task_int_t *task = (AXE_task_int_t *)_task;
+    AXE_remove_status_t *remove_status = (AXE_remove_status_t *)_remove_status;
+    AXE_remove_status_t task_remove_status;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(task);
+
+    /* Cancel task */
+    if(AXE_schedule_cancel(task, &task_remove_status, FALSE) != AXE_SUCCEED)
+        ERROR;
+
+    /* Update remove_status */
+    if(remove_status && ((*remove_status == AXE_ALL_DONE)
+            || ((*remove_status == AXE_CANCELED)
+              && (task_remove_status == AXE_NOT_CANCELED))))
+        *remove_status = task_remove_status;
+
+done:
+    return ret_value;
+} /* end AXE_schedule_cancel_all_cb() */
+
+
+/*-------------------------------------------------------------------------
  * Function:    AXE_schedule_cancel_all
  *
  * Purpose:     Attempts to cancel all tasks in the specified schedule.
@@ -1005,11 +1058,9 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_schedule_cancel_all(AXE_schedule_t *schedule,
+AXE_schedule_cancel_all(AXE_schedule_t *schedule, AXE_id_table_t *id_table,
     AXE_remove_status_t *remove_status)
 {
-    AXE_task_int_t *task;
-    AXE_remove_status_t task_remove_status;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(schedule);
@@ -1023,80 +1074,14 @@ AXE_schedule_cancel_all(AXE_schedule_t *schedule,
     if(remove_status)
         *remove_status = AXE_ALL_DONE;
 
-    /* Lock task list mutex */
-    if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
-        ERROR;
-
-    /* Loop over all tasks in the task list, marking all that are not running or
-     * done as canceled */
-    for(task = schedule->task_list_sentinel.task_list_next;
-            task != &schedule->task_list_sentinel;
-            task = task->task_list_next) {
-        assert(task->engine->schedule == schedule);
-
-        /* Cancel task */
-        if(AXE_schedule_cancel(task, &task_remove_status, FALSE) != AXE_SUCCEED)
-            ERROR;
-
-        /* Update remove_status */
-        if(remove_status && ((*remove_status == AXE_ALL_DONE)
-                || ((*remove_status == AXE_CANCELED)
-                  && (task_remove_status == AXE_NOT_CANCELED))))
-            *remove_status = task_remove_status;
-    } /* end for */
-
-    /* Unlock task list mutex */
-    if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
+    /* Iterate over all ids, marking all that are not running or done as
+     * canceled */
+    if(AXE_id_iterate(id_table, AXE_schedule_cancel_all_cb, remove_status) != AXE_SUCCEED)
         ERROR;
 
 done:
     return ret_value;
 } /* end AXE_schedule_cancel_all() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    AXE_schedule_remove_from_list
- *
- * Purpose:     Removes the specified task from the task list.  Should
- *              only be called when freeing the task, otherwise the
- *              library may not be able to clean it up when terminating
- *              the engine.  Must *not* be called while holding a task
- *              mutex!.
- *
- * Return:      Success: AXE_SUCCEED
- *              Failure: AXE_FAIL
- *
- * Programmer:  Neil Fortner
- *              February-March, 2013
- *
- *-------------------------------------------------------------------------
- */
-AXE_error_t
-AXE_schedule_remove_from_list(AXE_task_int_t *task)
-{
-    AXE_error_t ret_value = AXE_SUCCEED;
-
-    assert(task);
-
-    /* Lock task list mutex */
-    if(0 != pthread_mutex_lock(&task->engine->schedule->task_list_mutex))
-        ERROR;
-
-    /* Update list */
-    assert(task->task_list_next);
-    assert(task->task_list_prev);
-    assert(task->task_list_next->task_list_prev == task);
-    assert(task->task_list_prev->task_list_next == task);
-    task->task_list_next->task_list_prev = task->task_list_prev;
-    task->task_list_prev->task_list_next = task->task_list_next;
-
-    /* Unlock task list mutex */
-    if(0 != pthread_mutex_unlock(&task->engine->schedule->task_list_mutex))
-        ERROR;
-
-done:
-    return ret_value;
-} /* end AXE_schedule_remove_from_list() */
 
 
 /*-------------------------------------------------------------------------
@@ -1115,8 +1100,6 @@ done:
 AXE_error_t
 AXE_schedule_free(AXE_schedule_t *schedule)
 {
-    AXE_task_int_t *task;
-    AXE_task_int_t *next;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(schedule);
@@ -1124,28 +1107,6 @@ AXE_schedule_free(AXE_schedule_t *schedule)
 #ifdef AXE_DEBUG_NTASKS
     printf("nadds: %d, nenqs: %d, ndqs: %d, ncmplt: %d, ncanc: %d\n", OPA_load_int(&schedule->nadds), OPA_load_int(&schedule->nenqueues), OPA_load_int(&schedule->ndequeues), OPA_load_int(&schedule->ncomplete), OPA_load_int(&schedule->ncancels));
 #endif /* AXE_DEBUG_NTASKS */
-
-    /* If exclude_close is set and there are still tasks, fail */
-    if(schedule->exclude_close && (schedule->task_list_sentinel.task_list_next
-            != &schedule->task_list_sentinel))
-        ERROR;
-
-    /* Free all remaining tasks.  They should all be done or canceled. */
-    for(task = schedule->task_list_sentinel.task_list_next;
-            task != &schedule->task_list_sentinel;
-            task = next) {
-        assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE));
-
-        /* Cache next task because task will be freed */
-        next = task->task_list_next;
-
-        /* Set task_list_next pointer to NULL so AXE_task_free() doesn't bother
-         * calling AXE_schedule_remove_task() */
-        task->task_list_next = NULL;
-
-        /* Free task */
-        AXE_task_free(task);
-    } /* end for */
 
     /* Destroy queue mutex */
     if(0 != pthread_mutex_destroy(&schedule->scheduled_queue_mutex))
@@ -1159,10 +1120,6 @@ AXE_schedule_free(AXE_schedule_t *schedule)
     if(0 != pthread_mutex_destroy(&schedule->wait_all_mutex))
         ERROR;
 
-    /* Destroy task list mutex */
-    if(0 != pthread_mutex_destroy(&schedule->task_list_mutex))
-        ERROR;
-
     /* Free schedule */
 #ifndef NDEBUG
     memset(schedule, 0, sizeof(*schedule));
@@ -1172,50 +1129,6 @@ AXE_schedule_free(AXE_schedule_t *schedule)
 done:
     return ret_value;
 } /* end AXE_schedule_free() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    AXE_schedule_exclude_close_on
- *
- * Purpose:     Tells the specified schedule to fail if it tries to close
- *              with tasks still open.
- *
- * Return:      void
- *
- * Programmer:  Neil Fortner
- *              March 22, 2013
- *
- *-------------------------------------------------------------------------
- */
-void
-AXE_schedule_exclude_close_on(AXE_schedule_t *schedule)
-{
-    schedule->exclude_close = TRUE;
-
-    return;
-} /* end AXE_schedule_exclude_close_on() */
-
-
-/*-------------------------------------------------------------------------
- * Function:    AXE_schedule_exclude_close_off
- *
- * Purpose:     Tells the specified schedule to free open tasks when the
- *              schedule is closed.  This is the default behavior.
- *
- * Return:      void
- *
- * Programmer:  Neil Fortner
- *              March 22, 2013
- *
- *-------------------------------------------------------------------------
- */
-void
-AXE_schedule_exclude_close_off(AXE_schedule_t *schedule)
-{
-    schedule->exclude_close = FALSE;
-
-    return;
-} /* end AXE_schedule_exclude_close_off() */
 
 
 /*-------------------------------------------------------------------------
@@ -1258,21 +1171,8 @@ AXE_schedule_add_common(AXE_task_int_t *task)
     OPA_incr_int(&AXE_debug_nadds);
 #endif /* AXE_DEBUG_PERF */
 
-    /* Add task to task list */
-    /* Lock task list mutex */
-    if(0 != pthread_mutex_lock(&schedule->task_list_mutex))
-        ERROR;
-
-    /* Update list */
-    assert(schedule->task_list_sentinel.task_list_next);
-    assert(schedule->task_list_sentinel.task_list_next->task_list_prev == &schedule->task_list_sentinel);
-    task->task_list_next = schedule->task_list_sentinel.task_list_next;
-    task->task_list_prev = &schedule->task_list_sentinel;
-    schedule->task_list_sentinel.task_list_next = task;
-    task->task_list_next->task_list_prev = task;
-
-    /* Unlock task list mutex */
-    if(0 != pthread_mutex_unlock(&schedule->task_list_mutex))
+    /* Add task to id table */
+    if(AXE_id_insert(task->engine->id_table, task->id, task) != AXE_SUCCEED)
         ERROR;
 
     /* The task handle can be safely used by the application at this point */
