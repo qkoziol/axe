@@ -109,8 +109,8 @@ typedef struct {
 size_t num_threads_g[] = {1, 2, 3, 5, 10};
 
 /* For the number of threads corresponding to the same location in
- * num_threads_g, reduce the number of iterations by the factor indicated in this
- * array */
+ * num_threads_g, reduce the number of iterations by the factor indicated in
+ * this array */
 size_t iter_reduction_g[] = {1, 1, 1, 3, 5};
 
 /* Definitions needed for limiting the maximum number of threads */

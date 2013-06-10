@@ -9,7 +9,7 @@
 # COPYING at the root of the source code distribution tree.
 
 AC_PREREQ(2.59)
-AC_INIT([axe], [0.1b], [nfortne2@hdfgroup.org])
+AC_INIT([axe], [0.2b], [nfortne2@hdfgroup.org])
 AC_CONFIG_AUX_DIR([config])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([src/AXE.c])
