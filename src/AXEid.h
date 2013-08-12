@@ -48,8 +48,10 @@ typedef AXE_error_t (*AXE_id_iterate_op_t)(void *obj, void *op_data);
 AXE_error_t AXE_id_table_create(size_t num_buckets, size_t num_mutexes,
     AXE_id_t min_id, AXE_id_t max_id, AXE_id_table_t **id_table/*out*/);
 AXE_error_t AXE_id_generate(AXE_id_table_t *id_table, AXE_id_t *id);
-AXE_error_t AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj);
-AXE_error_t AXE_id_lookup(AXE_id_table_t *id_table, AXE_id_t id, void **obj);
+AXE_error_t AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj,
+    void **cur_obj/*out*/);
+AXE_error_t AXE_id_lookup(AXE_id_table_t *id_table, AXE_id_t id, void **obj,
+    _Bool *id_found/*out*/);
 AXE_error_t AXE_id_remove(AXE_id_table_t *id_table, AXE_id_t id);
 AXE_error_t AXE_id_iterate(AXE_id_table_t *id_table, AXE_id_iterate_op_t op,
     void *op_data);

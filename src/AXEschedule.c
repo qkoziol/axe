@@ -154,7 +154,7 @@ AXE_schedule_add(AXE_task_int_t *task)
 
     assert(task);
     assert(task->engine);
-    assert((AXE_status_t)OPA_load_int(&task->status) == AXE_WAITING_FOR_PARENT);
+    assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_NOT_INSERTED);
     assert(!task->sufficient_parents_int == (_Bool)OPA_load_int(&task->sufficient_complete));
 
     /* Increment the reference count on the task due to it being placed in the
@@ -192,8 +192,6 @@ AXE_schedule_add(AXE_task_int_t *task)
         if((AXE_status_t)OPA_load_int(&parent_task->status) == AXE_TASK_DONE)
             /* Parent is complete, increment number of necessary tasks complete
              */
-            /* Will need to add a check for cancelled state here when remove,
-             * etc. implemented */
             OPA_incr_int(&task->num_conditions_complete);
         else if((AXE_status_t)OPA_load_int(&parent_task->status) == AXE_TASK_CANCELED) {
             /* Parent is canceled.  If this happens, return an error but keep
@@ -394,15 +392,16 @@ AXE_schedule_add_barrier_cb(void *_parent_task, void *_op_data)
         ERROR;
 
     /* Load parent task status */
-    parent_status = OPA_load_int(&parent_task->status);
+    parent_status = (AXE_status_t)OPA_load_int(&parent_task->status);
 
-    /* If the task is not canceled or done, and it has no necessary
-     * children, add it as a parent of the barrier task.  Okay for checks of
-     * these conditions to not be atomic (except load of status), because
-     * changing status to done or canceled and modifying or iterating over
-     * child arrays occurs while holding the task mutex. */
+    /* If the task is not canceled, done, or not inserted, and it has no
+     * necessary children, add it as a parent of the barrier task.  Okay for
+     * checks of these conditions to not be atomic (except load of status),
+     * because changing status to done or canceled and modifying or iterating
+     * over child arrays occurs while holding the task mutex. */
     if((parent_status != AXE_TASK_DONE)
             && (parent_status != AXE_TASK_CANCELED)
+            && (parent_status != AXE_TASK_NOT_INSERTED)
             && (parent_task->num_necessary_children == 0)) {
         /* Add barrier task to parent's child task list */
         if(parent_task->num_necessary_children
@@ -508,7 +507,7 @@ AXE_schedule_add_barrier(AXE_task_int_t *task)
 
     assert(task);
     assert(task->engine);
-    assert((AXE_status_t)OPA_load_int(&task->status) == AXE_WAITING_FOR_PARENT);
+    assert((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_NOT_INSERTED);
     assert(task->num_sufficient_parents == 0);
     assert(!task->sufficient_parents_int);
     assert(OPA_load_int(&task->sufficient_complete) == TRUE);
@@ -618,6 +617,9 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
         if(OPA_fetch_and_incr_int(&child_task->num_conditions_complete)
                 == child_task->num_necessary_parents + 1) {
             /* The task can be scheduled - enqueue it */
+            /* Make sure the status is read after num_conditions_complete */
+            OPA_read_barrier();
+
             /* The fetch-and-incr should guarantee (along with similar
              * constructions elsewhere in this function and in AXE_schedule_add)
              * that only one thread ever sees the last condition fulfilled, but
@@ -628,8 +630,8 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
 
             assert(((AXE_status_t)OPA_load_int(&child_task->status) == AXE_TASK_SCHEDULED) || ((AXE_status_t)OPA_load_int(&child_task->status) == AXE_TASK_CANCELED));
 
-            /* Write barrier to make sure the status is updated before
-             * the task is scheduled */
+            /* Write barrier to make sure the status is updated before the task
+             * is scheduled */
             OPA_write_barrier();
 
 #ifdef AXE_DEBUG
@@ -678,11 +680,14 @@ AXE_schedule_finish(AXE_task_int_t **task/*in,out*/)
                     ERROR;
 
             /* Increment num_conditions_complete and check if this was the last
-             * condition needed  (i.e. all necessary parents were complete and
+             * condition needed (i.e. all necessary parents were complete and
              * the initialization is complete) */
             if(OPA_fetch_and_incr_int(&child_task->num_conditions_complete)
                 == child_task->num_necessary_parents + 1) {
                 /* The task can be scheduled - enqueue it */
+                /* Make sure the status is read after num_conditions_complete */
+                OPA_read_barrier();
+
                 /* The fetch-and-incr should guarantee (along with similar
                  * constructions elsewhere in this function and in
                  * AXE_schedule_add) that only one thread ever sees the last
@@ -949,7 +954,9 @@ AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
             ERROR;
     } /* end if */
 
-    /* Try to mark the task canceled.  Only send the signal if we succeed. */
+    /* Try to mark the task canceled.  Only send the signal if we succeed.  Try
+     * earlier states first so we catch tasks that flip to later states at the
+     * same time. */
     if(((AXE_status_t)OPA_cas_int(&task->status, (int)AXE_WAITING_FOR_PARENT,
               (int)AXE_TASK_CANCELED) == AXE_WAITING_FOR_PARENT)
             || ((AXE_status_t)OPA_cas_int(&task->status,
@@ -987,7 +994,10 @@ AXE_schedule_cancel(AXE_task_int_t *task, AXE_remove_status_t *remove_status,
          * finished during execution it's reasonable to return AXE_ALL_DONE.  If
          * the task was already canceled, return AXE_ALL_DONE (for now). */
         if(remove_status) {
-            if((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_RUNNING)
+            AXE_status_t status = OPA_load_int(&task->status);
+
+            if((status == AXE_TASK_RUNNING)
+                    || (status == AXE_TASK_NOT_INSERTED))
                 *remove_status = AXE_NOT_CANCELED;
             else
                 *remove_status = AXE_ALL_DONE;
@@ -1171,11 +1181,13 @@ AXE_schedule_add_common(AXE_task_int_t *task)
     OPA_incr_int(&AXE_debug_nadds);
 #endif /* AXE_DEBUG_PERF */
 
-    /* Add task to id table */
-    if(AXE_id_insert(task->engine->id_table, task->id, task) != AXE_SUCCEED)
-        ERROR;
+    /* Task initialization is complete, change status to AXE_WAITING_FOR_PARENT
+     */
+    OPA_store_int(&task->status, (int)AXE_WAITING_FOR_PARENT);
 
-    /* The task handle can be safely used by the application at this point */
+    /* Make sure status is updated before incrementing num_conditions_complete
+     */
+    OPA_write_barrier();
 
     /* Increment num_conditions_complete to account for initialization being
      * complete. Schedule the event if all necessary parents and at least one

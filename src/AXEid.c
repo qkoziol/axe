@@ -308,6 +308,9 @@ done:
  * Function:    AXE_id_insert
  *
  * Purpose:     Inserts an object into an id table with the specified id.
+ *              If cur_obj is non-NULL, then if the id already exists,
+ *              cur_obj is set to point to the id's object.  Otherwise,
+ *              fails if the object already exists.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
@@ -318,7 +321,8 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj)
+AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj,
+    void **cur_obj/*out*/)
 {
     AXE_id_entry_t *id_entry = NULL;
     AXE_id_entry_t *tmp_id_entry;
@@ -408,13 +412,27 @@ AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj)
         assert(tmp_id_entry->id % id_table->num_buckets == i);
         if(tmp_id_entry->id == id) {
             if(tmp_id_entry->obj) {
-                (void)pthread_mutex_unlock(id_table->buckets[i].mutex);
-                ERROR;
+                /* Object already exists, return object in cur_obj if provided,
+                 * otherwise fail */
+                if(cur_obj) {
+                    *cur_obj = tmp_id_entry->obj;
+                    tmp_id_entry = NULL;
+                    break;
+                } /* end if */
+                else {
+                    (void)pthread_mutex_unlock(id_table->buckets[i].mutex);
+                    ERROR;
+                } /* end else */
             } /* end if */
             else {
                 /* Found matching empty entry, associate with obj */
                 tmp_id_entry->obj = obj;
                 tmp_id_entry = NULL;
+
+                /* Report that we did not find a preexisting object */
+                if(cur_obj)
+                    *cur_obj = NULL;
+
                 break;
             } /* end else */
         } /* end if */
@@ -423,8 +441,9 @@ AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj)
         tmp_id_entry = tmp_id_entry->next;
     } /* end while */
 
-    /* If the id_entry already exists, associate the object with it.
-     * Otherwise create a new id entry and add it to the list. */
+    /* If tmp_id_entry is non-NULL here, then a matching empty id_entry was not
+     * found and the id has not been inserted.  Append a new id_entry to the end
+     * of the list. */
     if(tmp_id_entry) {
         /* Create new id entry if it was not created earlier */
         if(!id_entry) {
@@ -442,6 +461,10 @@ AXE_id_insert(AXE_id_table_t *id_table, AXE_id_t id, void *obj)
 
         /* Append id_entry to list */
         tmp_id_entry->next = id_entry;
+
+        /* Report that we did not find a preexisting object */
+        if(cur_obj)
+            *cur_obj = NULL;
     } /* end if */
 
     /* Unlock the bucket mutex */
@@ -472,7 +495,8 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXE_id_lookup(AXE_id_table_t *id_table, AXE_id_t id, void **obj)
+AXE_id_lookup(AXE_id_table_t *id_table, AXE_id_t id, void **obj,
+    _Bool *id_found)
 {
     AXE_id_entry_t *id_entry;
     size_t i;
@@ -500,11 +524,12 @@ AXE_id_lookup(AXE_id_table_t *id_table, AXE_id_t id, void **obj)
         ERROR;
 
     /* Check if we found the id */
-    if(!id_entry)
-        ERROR;
+    if(id_found)
+        *id_found = !!id_entry;
 
     /* Set *obj to point to obj in id table */
-    *obj = id_entry->obj;
+    if(id_entry)
+        *obj = id_entry->obj;
 
 done:
     return ret_value;
@@ -631,7 +656,8 @@ done:
  * Function:    AXE_id_table_free
  *
  * Purpose:     Iterates over all ids in the table, making the specified
- *              for each, and destroying the id table in the process.
+ *              callback for each, and destroying the id table in the
+ *              process.
  *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL

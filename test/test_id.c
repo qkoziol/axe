@@ -211,7 +211,7 @@ test_id_insert_gen_helper(AXE_engine_t _engine, size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Insert elem into table */
-        if(AXE_id_insert(shared->id_table, elem->id, elem) != AXE_SUCCEED)
+        if(AXE_id_insert(shared->id_table, elem->id, elem, NULL) != AXE_SUCCEED)
             TEST_ERROR;
         OPA_incr_int(&shared->num_ins_gen);
 
@@ -281,7 +281,7 @@ test_id_insert_nogen_helper(AXE_engine_t _engine, size_t num_necessary_parents,
             elem->id = (AXE_id_t)OPA_fetch_and_incr_int(&shared->next_nogen);
 
         /* Insert elem into table */
-        if(AXE_id_insert(shared->id_table, elem->id, elem) != AXE_SUCCEED)
+        if(AXE_id_insert(shared->id_table, elem->id, elem, NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Write barrier to make sure elem is really in the table before we add
@@ -349,7 +349,7 @@ test_id_lookup_gen_helper(AXE_engine_t _engine, size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Lookup element */
-        if(AXE_id_lookup(shared->id_table, elem->id, (void **)(void *)&lookup_elem) != AXE_SUCCEED)
+        if(AXE_id_lookup(shared->id_table, elem->id, (void **)(void *)&lookup_elem, NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Verify element */
@@ -419,7 +419,7 @@ test_id_lookup_ins_helper(AXE_engine_t _engine, size_t num_necessary_parents,
             TEST_ERROR;
 
         /* Lookup element */
-        if(AXE_id_lookup(shared->id_table, elem->id, (void **)(void *)&lookup_elem) != AXE_SUCCEED)
+        if(AXE_id_lookup(shared->id_table, elem->id, (void **)(void *)&lookup_elem, NULL) != AXE_SUCCEED)
             TEST_ERROR;
 
         /* Verify element */

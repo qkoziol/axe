@@ -53,8 +53,6 @@ typedef struct AXE_task_int_t {
     size_t                  num_sufficient_children; /* Number of sufficient child tasks */
     size_t                  sufficient_children_nalloc; /* size of sufficient_children in elements */
     struct AXE_task_int_t   **sufficient_children;  /* Array of sufficient child tasks */
-    struct AXE_task_int_t   *task_list_next;        /* Next task in task list */
-    struct AXE_task_int_t   *task_list_prev;        /* Previous task in task list */
     struct AXE_task_int_t   *free_list_next;        /* Next task in free list.  Should be NULL unless rc has dropped to 0 and it is about to be freed by AXE_schedule_finish(). */
 } AXE_task_int_t;
 
@@ -74,6 +72,8 @@ AXE_error_t AXE_task_create_barrier(AXE_engine_int_t *engine,
     AXE_task_free_op_data_t free_op_data);
 void AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/);
 void AXE_task_get_status(AXE_task_int_t *task, AXE_status_t *status/*out*/);
+AXE_error_t AXE_task_get(AXE_engine_int_t *engine, AXE_id_t task_id,
+    AXE_task_int_t **task/*out*/);
 AXE_error_t AXE_task_worker(void *_task);
 AXE_error_t AXE_task_wait(AXE_task_int_t *task);
 AXE_error_t AXE_task_cancel_leaf(AXE_task_int_t *task,

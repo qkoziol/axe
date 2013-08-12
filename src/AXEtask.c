@@ -122,6 +122,7 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_id_t task_id,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
     AXE_task_int_t *task = NULL;
+    AXE_task_int_t *found_task = NULL;
     size_t i;
     AXE_error_t ret_value = AXE_SUCCEED;
 
@@ -129,9 +130,45 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_id_t task_id,
     assert(num_necessary_parents == 0 || necessary_parents);
     assert(num_sufficient_parents == 0 || sufficient_parents);
 
-    /* Allocate and initialize task struct */
-    if(AXE_task_init(engine, &task, task_id, op, op_data, free_op_data) != AXE_SUCCEED)
+    /* Note no need to take task mutex in this function because the only fields
+     * that will be accessed by other threads before parents have child pointers
+     * to this task are the status and the child arrays, neither of which should
+     * be a problem here */
+
+    /* Check if a task shell has already been inserted into the engine */
+    if(AXE_id_lookup(engine->id_table, task_id, (void **)&found_task, NULL) != AXE_SUCCEED)
         ERROR;
+
+    if(!found_task) {
+        /* Allocate and initialize task struct */
+        if(AXE_task_init(engine, &task, task_id, op, op_data, free_op_data) != AXE_SUCCEED)
+            ERROR;
+
+        /* Insert task into id table */
+        if(AXE_id_insert(engine->id_table, task_id, (void *)task, (void **)(void *)&found_task) != AXE_SUCCEED)
+            ERROR;
+
+        /* If we found a task when we tried to insert it (it was inserted by
+         * another thread since the call to AXE_id_lookup()), free task */
+        if(found_task) {
+            if(AXE_task_free(task, FALSE) != AXE_SUCCEED)
+                ERROR;
+            task = NULL;
+        } /* end if */
+    } /* end if */
+
+    if(found_task) {
+        /* If we received a task shell from the id instead of creating a new
+         * task struct, make sure it is only a shell (status is
+         * AXE_TASK_NOT_INSERTED), then update the op, op_data, and free_op_data
+         * pointers */
+        task = found_task;
+        if((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_NOT_INSERTED)
+            ERROR;
+        task->op = op;
+        task->op_data = op_data;
+        task->free_op_data = free_op_data;
+    } /* end if */
 
     /* Copy necessary parent array */
     if(num_necessary_parents > 0) {
@@ -149,10 +186,9 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_id_t task_id,
         if(NULL == (task->necessary_parents_int = (AXE_task_int_t **)malloc(num_necessary_parents * sizeof(AXE_task_int_t *))))
             ERROR;
         for(i = 0; i < num_necessary_parents; i++) {
-            if(AXE_id_lookup(engine->id_table, (AXE_id_t)necessary_parents[i], (void **)&task->necessary_parents_int[i]) != AXE_SUCCEED)
+            if(AXE_task_get(engine, (AXE_id_t)necessary_parents[i], &task->necessary_parents_int[i]) !=AXE_SUCCEED)
                 ERROR;
-            if(!task->necessary_parents_int[i])
-                ERROR;
+            assert(task->necessary_parents_int[i]);
         } /* end for */
     } /* end if */
 
@@ -161,10 +197,9 @@ AXE_task_create(AXE_engine_int_t *engine, AXE_id_t task_id,
         if(NULL == (task->sufficient_parents_int = (AXE_task_int_t **)malloc(num_sufficient_parents * sizeof(AXE_task_int_t *))))
             ERROR;
         for(i = 0; i < num_sufficient_parents; i++) {
-            if(AXE_id_lookup(engine->id_table, (AXE_id_t)sufficient_parents[i], (void **)&task->sufficient_parents_int[i]) != AXE_SUCCEED)
+            if(AXE_task_get(engine, (AXE_id_t)sufficient_parents[i], &task->sufficient_parents_int[i]) !=AXE_SUCCEED)
                 ERROR;
-            if(!task->sufficient_parents_int[i])
-                ERROR;
+            assert(task->sufficient_parents_int[i]);
         } /* end for */
     } /* end if */
 
@@ -208,13 +243,50 @@ AXE_task_create_barrier(AXE_engine_int_t *engine, AXE_id_t task_id,
     AXE_task_op_t op, void *op_data, AXE_task_free_op_data_t free_op_data)
 {
     AXE_task_int_t *task = NULL;
+    AXE_task_int_t *found_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(engine);
 
-    /* Allocate and initialize task struct */
-    if(AXE_task_init(engine, &task, task_id, op, op_data, free_op_data) != AXE_SUCCEED)
+    /* Note no need to take task mutex in this function because the only fields
+     * that will be accessed by other threads before parents have child pointers
+     * to this task are the status and the child arrays, neither of which should
+     * be a problem here */
+
+    /* Check if a task shell has already been inserted into the engine */
+    if(AXE_id_lookup(engine->id_table, task_id, (void **)&found_task, NULL) != AXE_SUCCEED)
         ERROR;
+
+    if(!found_task) {
+        /* Allocate and initialize task struct */
+        if(AXE_task_init(engine, &task, task_id, op, op_data, free_op_data) != AXE_SUCCEED)
+            ERROR;
+
+        /* Insert task into id table */
+        if(AXE_id_insert(engine->id_table, task_id, (void *)task, (void **)(void *)&found_task) != AXE_SUCCEED)
+            ERROR;
+
+        /* If we found a task when we tried to insert it (it was inserted by
+         * another thread since the call to AXE_id_lookup()), free task */
+        if(found_task) {
+            if(AXE_task_free(task, FALSE) != AXE_SUCCEED)
+                ERROR;
+            task = NULL;
+        } /* end if */
+    } /* end if */
+
+    if(found_task) {
+        /* If we received a task shell from the id instead of creating a new
+         * task struct, make sure it is only a shell (status is
+         * AXE_TASK_NOT_INSERTED), then update the op, op_data, and free_op_data
+         * pointers */
+        task = found_task;
+        if((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_NOT_INSERTED)
+            ERROR;
+        task->op = op;
+        task->op_data = op_data;
+        task->free_op_data = free_op_data;
+    } /* end if */
 
     /* Initialize sufficient_complete to TRUE and num_conditions_complete to 1,
      * as barrier tasks never have sufficient parents */
@@ -232,6 +304,70 @@ done:
 
     return ret_value;
 } /* end AXE_task_create_barrier() */
+
+
+/*-------------------------------------------------------------------------
+ * Function:    AXE_task_get
+ *
+ * Purpose:     Returns a task given an id.  If the task has not yet been
+ *              created, creates a "shell" task to keep track of its
+ *              children and waiters until the task is created.
+ *
+ * Return:      Success: AXE_SUCCEED
+ *              Failure: AXE_FAIL
+ *
+ * Programmer:  Neil Fortner
+ *              July 24, 2013
+ *
+ *-------------------------------------------------------------------------
+ */
+AXE_error_t
+AXE_task_get(AXE_engine_int_t *engine, AXE_id_t task_id,
+    AXE_task_int_t **task/*out*/)
+{
+    AXE_task_int_t *created_task = NULL;
+    AXE_error_t ret_value = AXE_SUCCEED;
+
+    assert(engine);
+    assert(task);
+
+    /* First check if the task already exists */
+    if(AXE_id_lookup(engine->id_table, task_id, (void **)(void *)task, NULL) != AXE_SUCCEED)
+        ERROR;
+    if(!*task) {
+        /* Parent task does not yet exist, create a shell and add it to the id
+         * table so we can fill it in when the task is evenutally created */
+        if(AXE_task_init(engine, &created_task, task_id, NULL, NULL, NULL) != AXE_SUCCEED)
+            ERROR;
+
+        /* No need to initialize the sufficient_complete and
+         * num_conditions_complete fields, as they will not be used until the
+         * task is added to a parent's child array or the task is scheduled */
+
+        /* Try to insert the task shell.  If not successful because it was
+         * inserted since the last lookup, return the current object */
+        if(AXE_id_insert(engine->id_table, task_id, (void *)created_task, (void **)(void *)task) != AXE_SUCCEED)
+            ERROR;
+        if(*task) {
+            if(AXE_task_free(created_task, FALSE) != AXE_SUCCEED)
+                ERROR;
+            created_task = NULL;
+        } /* end if */
+        else {
+            *task = created_task;
+            created_task = NULL;
+        } /* end else */
+    } /* end if */
+
+    assert(*task);
+
+done:
+    if(ret_value == AXE_FAIL)
+        if(created_task)
+            (void)AXE_task_free(created_task, FALSE);
+
+    return ret_value;
+} /* end AXE_task_get() */
 
 
 /*-------------------------------------------------------------------------
@@ -261,7 +397,7 @@ AXE_task_get_op_data(AXE_task_int_t *task, void **op_data/*out*/)
 
 
 /*-------------------------------------------------------------------------
- * Function:    AXE_task_get_op_data
+ * Function:    AXE_task_get_status
  *
  * Purpose:     Internal routine to query a task's status.
  *
@@ -552,7 +688,7 @@ AXE_task_free(AXE_task_int_t *task, _Bool remove_id)
     AXE_error_t ret_value = AXE_SUCCEED;
 
     assert(task);
-    assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED));
+    assert(((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_DONE) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_CANCELED) || ((AXE_status_t)OPA_load_int(&task->status) == AXE_TASK_NOT_INSERTED));
 
 #ifdef AXE_DEBUG
     printf("AXE_task_free: %p\n", task); fflush(stdout);
@@ -647,7 +783,7 @@ AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     if(0 != pthread_cond_init(&(*task)->wait_cond, NULL))
         ERROR;
     is_wait_cond_init = TRUE;
-    OPA_store_int(&(*task)->status, (int)AXE_WAITING_FOR_PARENT);
+    OPA_store_int(&(*task)->status, (int)AXE_TASK_NOT_INSERTED);
 
     /* Initialize reference count to 1.  The caller of this function is
      * responsible for decrementing the reference count when it is done with the
@@ -663,8 +799,6 @@ AXE_task_init(AXE_engine_int_t *engine, AXE_task_int_t **task/*out*/,
     (*task)->num_sufficient_children = 0;
     (*task)->sufficient_children_nalloc = 0;
     (*task)->sufficient_children = NULL;
-
-    /* Schedule package will initialize task_list_next and task_list_prev */
     (*task)->free_list_next = NULL;
 
 done:

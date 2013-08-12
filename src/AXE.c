@@ -184,7 +184,7 @@ AXEget_num_threads(const AXE_engine_attr_t *attr, size_t *num_threads)
 
 done:
     return ret_value;
-} /* end AXEget_num_id_threads() */
+} /* end AXEget_num_threads() */
 
 
 /*-------------------------------------------------------------------------
@@ -605,6 +605,7 @@ AXE_error_t
 AXErelease_task_id(AXE_engine_t engine, AXE_task_t task)
 {
     void *obj;
+    _Bool id_found;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
@@ -613,7 +614,9 @@ AXErelease_task_id(AXE_engine_t engine, AXE_task_t task)
 
     /* Lookup the id, to make sure it is present and has not been
      * associated with a task */
-    if(AXE_id_lookup(engine->id_table, task, &obj) != AXE_SUCCEED)
+    if(AXE_id_lookup(engine->id_table, task, &obj, &id_found) != AXE_SUCCEED)
+        ERROR;
+    if(!id_found)
         ERROR;
     if(obj)
         ERROR;
@@ -643,6 +646,18 @@ done:
  *              can be empty.  If any parent tasks complete before the new
  *              task is inserted, they will still be included in the
  *              arrays passed to the op routine when it is invoked.
+ *
+ *              Entries in the parent arrays can be ids for tasks that
+ *              have not been created yet.  In this case they will be
+ *              considered to be incomplete tasks until they are created
+ *              and execute.  Note that this feature allows cycles to be
+ *              created which can never be executed.  Make sure to avoid
+ *              this.  For example, never create a child of a barrier task
+ *              before creating the barrier task.  Also note that this
+ *              function will not fail if you pass an "invalid" id as a
+ *              parent, so if while debugging you are having problems
+ *              occur later on you might want to check the parents passed
+ *              to this function.6
  *
  *              If the op parameter is NULL, no operation will be invoked
  *              and this event is solely a placeholder in the graph for
@@ -786,15 +801,26 @@ AXEremove(AXE_engine_t engine, AXE_task_t task,
     AXE_remove_status_t *remove_status)
 {
     AXE_task_int_t *int_task = NULL;
+    AXE_status_t status;
     AXE_error_t ret_value = AXE_SUCCEED;
 
-    /* Look up task */
-    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+    /* Check parameters */
+    if(!engine)
         ERROR;
 
-    /* Check if task is NULL (indicates id was generated but task was never
-     * created) */
+    /* Look up task */
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task, NULL) != AXE_SUCCEED)
+        ERROR;
+
+    /* Check if task is NULL (indicates id was not found or was generated but
+     * task was never created) */
     if(!int_task)
+        ERROR;
+
+    /* Check if the task was not inserted (indicates task was passed as a parent
+     * of another but never actually created) */
+    AXE_task_get_status(int_task, &status);
+    if(status == AXE_TASK_NOT_INSERTED)
         ERROR;
 
     /* Cancel task */
@@ -866,19 +892,28 @@ AXE_error_t
 AXEget_op_data(AXE_engine_t engine, AXE_task_t task, void **op_data/*out*/)
 {
     AXE_task_int_t *int_task = NULL;
+    AXE_status_t status;
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
+    if(!engine)
+        ERROR;
     if(!op_data)
         ERROR;
 
     /* Look up task */
-    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task, NULL) != AXE_SUCCEED)
         ERROR;
 
-    /* Check if task is NULL (indicates id was generated but task was never
-     * created) */
+    /* Check if task is NULL (indicates id was not found or was generated but
+     * task was never created) */
     if(!int_task)
+        ERROR;
+
+    /* Check if the task was not inserted (indicates task was passed as a parent
+     * of another but never actually created) */
+    AXE_task_get_status(int_task, &status);
+    if(status == AXE_TASK_NOT_INSERTED)
         ERROR;
 
     /* Get op data */
@@ -896,6 +931,10 @@ done:
  *              determine if a task has completed.  The status is returned
  *              in *status.
  *
+ *              Note that if the task has not been created, this function
+ *              will succeed and status will be set to
+ *              AXE_TASK_NOT_INSERTED.
+ *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
  *
@@ -911,16 +950,13 @@ AXEget_status(AXE_engine_t engine, AXE_task_t task, AXE_status_t *status/*out*/)
     AXE_error_t ret_value = AXE_SUCCEED;
 
     /* Check parameters */
+    if(!engine)
+        ERROR;
     if(!status)
         ERROR;
 
     /* Look up task */
-    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
-        ERROR;
-
-    /* Check if task is NULL (indicates id was generated but task was never
-     * created) */
-    if(!int_task)
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task, NULL) != AXE_SUCCEED)
         ERROR;
 
     /* Use read/write barriers before and after we retrieve the status, in case
@@ -928,8 +964,12 @@ AXEget_status(AXE_engine_t engine, AXE_task_t task, AXE_status_t *status/*out*/)
      * is only valid for a certain status.  */
     OPA_read_write_barrier();
 
-    /* Get op data */
-    AXE_task_get_status(int_task, status);
+    /* Get op data if the task was found, return AXE_TASK_NOT_INSERTED otherwise
+     */
+    if(int_task)
+        AXE_task_get_status(int_task, status);
+    else
+        *status = AXE_TASK_NOT_INSERTED;
 
     /* Read/write barrier, see above */
     OPA_read_write_barrier();
@@ -951,6 +991,10 @@ done:
  *              while waiting or was canceled before this function is
  *              called this function will return failure.
  *
+ *              Note that if the task has not been created, this function
+ *              will wait until the task is created and runs to
+ *              completion or is canceled.
+ *
  * Return:      Success: AXE_SUCCEED
  *              Failure: AXE_FAIL
  *
@@ -965,14 +1009,15 @@ AXEwait(AXE_engine_t engine, AXE_task_t task)
     AXE_task_int_t *int_task = NULL;
     AXE_error_t ret_value = AXE_SUCCEED;
 
-    /* Look up task */
-    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+    /* Check parameters */
+    if(!engine)
         ERROR;
 
-    /* Check if task is NULL (indicates id was generated but task was never
-     * created) */
-    if(!int_task)
+    /* Look up task, creating shell if it is not found */
+    if(AXE_task_get(engine, task, &int_task) != AXE_SUCCEED)
         ERROR;
+
+    assert(int_task);
 
     /* Wait for task to complete */
     if(AXE_task_wait(int_task) != AXE_SUCCEED)
@@ -1007,15 +1052,26 @@ AXE_error_t
 AXEfinish(AXE_engine_t engine, AXE_task_t task)
 {
     AXE_task_int_t *int_task = NULL;
+    AXE_status_t status;
     AXE_error_t ret_value = AXE_SUCCEED;
 
-    /* Look up task */
-    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task) != AXE_SUCCEED)
+    /* Check parameters */
+    if(!engine)
         ERROR;
 
-    /* Check if task is NULL (indicates id was generated but task was never
-     * created) */
+    /* Look up task */
+    if(AXE_id_lookup(engine->id_table, task, (void **)(void *)&int_task, NULL) != AXE_SUCCEED)
+        ERROR;
+
+    /* Check if task is NULL (indicates id was not found or was generated but
+     * task was never created) */
     if(!int_task)
+        ERROR;
+
+    /* Check if the task was not inserted (indicates task was passed as a parent
+     * of another but never actually created) */
+    AXE_task_get_status(int_task, &status);
+    if(status == AXE_TASK_NOT_INSERTED)
         ERROR;
 
     /* Decrement reference count on task, it will be freed if it drops to zero
@@ -1055,8 +1111,13 @@ AXE_error_t
 AXEfinish_all(AXE_engine_t engine, size_t num_tasks, AXE_task_t task[])
 {
     AXE_task_int_t *int_task = NULL;
+    AXE_status_t status;
     size_t i;
     AXE_error_t ret_value = AXE_SUCCEED;
+
+    /* Check parameters */
+    if(!engine)
+        ERROR;
 
     /* Check parameters */
     if(num_tasks > 0 && !task)
@@ -1065,12 +1126,18 @@ AXEfinish_all(AXE_engine_t engine, size_t num_tasks, AXE_task_t task[])
     /* Iterate over all tasks */
     for(i = 0; i < num_tasks; i++) {
         /* Look up task */
-        if(AXE_id_lookup(engine->id_table, task[i], (void **)(void *)&int_task) != AXE_SUCCEED)
+        if(AXE_id_lookup(engine->id_table, task[i], (void **)(void *)&int_task, NULL) != AXE_SUCCEED)
             ERROR;
 
-        /* Check if task is NULL (indicates id was generated but task was never
-         * created) */
+        /* Check if task is NULL (indicates id was not found or was generated
+         * but task was never created) */
         if(!int_task)
+            ERROR;
+
+        /* Check if the task was not inserted (indicates task was passed as a parent
+         * of another but never actually created) */
+        AXE_task_get_status(int_task, &status);
+        if(status == AXE_TASK_NOT_INSERTED)
             ERROR;
 
         /* Decrement reference count on task, it will be freed if it drops to zero

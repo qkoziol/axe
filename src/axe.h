@@ -38,6 +38,7 @@ typedef struct AXE_engine_attr_t {
 
 /* The status of a task */
 typedef enum {
+    AXE_TASK_NOT_INSERTED = -1, /* The task has not yet been inserted; this is a placeholder created due to being listed as a parent of another task */
     AXE_WAITING_FOR_PARENT,     /* The task cannot run yet because not all conditions have been met */
     AXE_TASK_SCHEDULED,         /* The task can be run but has not started running yet */
     AXE_TASK_RUNNING,           /* The task is executing */
