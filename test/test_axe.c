@@ -385,7 +385,7 @@ test_simple_helper(AXE_engine_t engine, size_t num_necessary_parents,
         TEST_ERROR;
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++)
         if(task_data[i].failed > 0)
-            TEST_ERROR
+            TEST_ERROR;
     for(i = 0; i < 3; i++) {
         if(task_data[i].run_order == -1)
             TEST_ERROR;
