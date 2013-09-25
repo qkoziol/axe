@@ -38,6 +38,12 @@ THIS SOFTWARE IS PROVIDED BY THE HDF GROUP AND THE CONTRIBUTORS "AS IS"
 WITH NO WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED.  In no event 
 shall The HDF Group or the Contributors be liable for any damages suffered 
 by the users arising out of the use of this software, even if advised of 
-the possibility of such damage. 
+the possibility of such damage.
+
+
+The Government's rights to use, modify, reproduce, release, perform, display, or
+disclose this software are subject to the terms of Contract No. B599860.  Any
+reproduction of computer software, computer software documentation, or portions
+thereof marked with this legend must also reproduce the markings.
 
 
