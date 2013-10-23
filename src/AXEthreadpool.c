@@ -152,9 +152,9 @@ done:
             else {
                 if(is_thread_attr_init)
                     (void)pthread_attr_destroy(&(*thread_pool)->thread_attr);
-                if(is_thread_mutex_init);
+                if(is_thread_mutex_init)
                     (void)pthread_mutex_destroy(&(*thread_pool)->thread_queue_mutex);
-                if(is_thread_wait_cond_init);
+                if(is_thread_wait_cond_init)
                     (void)pthread_cond_destroy(&(*thread_pool)->thread_wait_cond);
                 if((*thread_pool)->threads)
                     free((*thread_pool)->threads);

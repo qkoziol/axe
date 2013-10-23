@@ -692,6 +692,9 @@ AXE_id_table_free(AXE_id_table_t *id_table, AXE_id_iterate_op_t op,
                     ERROR;
                 tmp_id_entry = id_entry;
                 id_entry = id_entry->next;
+#ifndef NDEBUG
+                memset(tmp_id_entry, 0, sizeof(*tmp_id_entry));
+#endif /* NDEBUG */
                 free(tmp_id_entry);
             } while(id_entry);
         } /* end if */
@@ -708,6 +711,9 @@ AXE_id_table_free(AXE_id_table_t *id_table, AXE_id_iterate_op_t op,
     free(id_table->mutexes);
 
     /* Free id table */
+#ifndef NDEBUG
+    memset(id_table, 0, sizeof(*id_table));
+#endif /* NDEBUG */
     free(id_table);
 
 done:

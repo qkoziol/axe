@@ -1972,6 +1972,7 @@ test_barrier_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
     AXE_engine_attr_t engine_attr;
+    _Bool engine_init = FALSE;
     AXE_task_t task[11];
     AXE_task_t parent_task[2];
     AXE_status_t status;
@@ -2006,6 +2007,7 @@ test_barrier_helper(AXE_engine_t _engine, size_t num_necessary_parents,
         TEST_ERROR;
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
 
     /*
@@ -2776,6 +2778,7 @@ test_barrier_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
@@ -2793,8 +2796,10 @@ test_barrier_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     return;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
-    MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
 
     (void)AXEengine_attr_destroy(&engine_attr);
 
@@ -3776,6 +3781,7 @@ test_remove_all_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
     AXE_engine_attr_t engine_attr;
+    _Bool engine_init = FALSE;
     AXE_task_t task[4];
     AXE_status_t status;
     AXE_remove_status_t remove_status;
@@ -3805,7 +3811,7 @@ test_remove_all_helper(AXE_engine_t _engine, size_t num_necessary_parents,
 
     /* Reserve threads for engine */
     MAX_NTHREADS_RESERVE(helper_data->num_threads, TEST_ERROR);
-    
+
     /* Initialize engine attribute */
     if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
@@ -3815,6 +3821,7 @@ test_remove_all_helper(AXE_engine_t _engine, size_t num_necessary_parents,
         TEST_ERROR;
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
 
     /*
@@ -4224,6 +4231,7 @@ test_remove_all_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
@@ -4245,8 +4253,10 @@ test_remove_all_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     return;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
-    MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
 
     (void)AXEengine_attr_destroy(&engine_attr);
 
@@ -4634,6 +4644,7 @@ test_num_threads_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
     AXE_engine_attr_t engine_attr;
+    _Bool engine_init = FALSE;
     AXE_task_t task[5];
     AXE_status_t status;
     AXE_remove_status_t remove_status;
@@ -4678,6 +4689,7 @@ test_num_threads_helper(AXE_engine_t _engine, size_t num_necessary_parents,
         TEST_ERROR;
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
 
     /*
@@ -5011,6 +5023,7 @@ test_num_threads_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(2, TEST_ERROR);
@@ -5034,8 +5047,10 @@ test_num_threads_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     return;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
-    MAX_NTHREADS_RELEASE(2, );
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(2, );
+    } /* end if */
 
     (void)AXEengine_attr_destroy(&engine_attr);
 
@@ -6060,7 +6075,8 @@ test_pileup_helper(AXE_engine_t _engine, size_t num_necessary_parents,
         int_helper_data.task_data[i].cond_mutex = NULL;
     } /* end for */
 
-    /* Launch CREATE_REMOVE_ALL_NTASKS tasks */
+    /* Launch (PILEUP_NTASKS * 2) tasks, half of which create a basic task,
+     * resulting in PILEUP_NTASKS basic tasks */
     for(i = 0; i < (PILEUP_NTASKS / 2); i++) {
         /* Launch create helper */
         if(AXEgenerate_task_id(engine, &tmp_task) != AXE_SUCCEED)
@@ -6179,6 +6195,7 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
     AXE_engine_attr_t engine_attr;
+    _Bool engine_init = FALSE;
     AXE_task_t task[7];
     int i;
 
@@ -6203,6 +6220,7 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     /* Create AXE engine */
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
     /* Generate 3 ids, verify that they are 2, 3, and 4 */
     if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
@@ -6256,6 +6274,7 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
 
     /*
@@ -6265,6 +6284,7 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     /* Create AXE engine */
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
     /* Create tasks with ids 1-5 */
     for(i = 0; i < 5; i++) {
@@ -6290,6 +6310,7 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
 
     /*
@@ -6304,6 +6325,7 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     /* Create AXE engine */
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
     /* Generate and release an automatic id */
     if(AXEgenerate_task_id(engine, &task[0]) != AXE_SUCCEED)
@@ -6363,6 +6385,7 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
 
     /*
@@ -6377,7 +6400,8 @@ test_id_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     return;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
+    if(engine_init)
+        (void)AXEterminate_engine(engine, FALSE);
 
     (void)AXEengine_attr_destroy(&engine_attr);
 
@@ -6850,7 +6874,6 @@ error:
     OPA_incr_int(&helper_data->nfailed);
 
     return;
-    
 } /* end test_nx_parent_auto_helper() */
 
 
@@ -6875,6 +6898,7 @@ test_nx_parent_man_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
     AXE_engine_attr_t engine_attr;
+    _Bool engine_init = FALSE;
     AXE_task_t task[2];
     AXE_status_t status;
     basic_task_t task_data[2];
@@ -6893,6 +6917,7 @@ test_nx_parent_man_helper(AXE_engine_t _engine, size_t num_necessary_parents,
         TEST_ERROR;
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
     /* Initialize task data structs */
     for(i = 0; i < (sizeof(task_data) / sizeof(task_data[0])); i++) {
@@ -7058,6 +7083,7 @@ test_nx_parent_man_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
@@ -7071,8 +7097,10 @@ test_nx_parent_man_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     return;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
-    MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
 
     (void)AXEengine_attr_destroy(&engine_attr);
 
@@ -7312,7 +7340,7 @@ test_nx_parent_cpx_auto_helper(AXE_engine_t engine, size_t num_necessary_parents
 error:
     if(task_data)
         free(task_data);
-    if(task_data_buf);
+    if(task_data_buf)
         free(task_data_buf);
 
     OPA_incr_int(&helper_data->nfailed);
@@ -7547,7 +7575,7 @@ test_nx_parent_cpx_man_helper(AXE_engine_t _engine, size_t num_necessary_parents
 error:
     if(task_data)
         free(task_data);
-    if(task_data_buf);
+    if(task_data_buf)
         free(task_data_buf);
 
     if(engine_init) {
@@ -7587,6 +7615,7 @@ test_nx_get_status_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
     AXE_engine_attr_t engine_attr;
+    _Bool engine_init = FALSE;
     AXE_task_t task;
     AXE_status_t status;
 
@@ -7602,6 +7631,7 @@ test_nx_get_status_helper(AXE_engine_t _engine, size_t num_necessary_parents,
         TEST_ERROR;
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
 
     /*
@@ -7703,6 +7733,7 @@ test_nx_get_status_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
@@ -7716,8 +7747,10 @@ test_nx_get_status_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     return;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
-    MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
 
     (void)AXEengine_attr_destroy(&engine_attr);
 
@@ -7774,6 +7807,7 @@ test_nx_wait_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     test_helper_t *helper_data = (test_helper_t *)_helper_data;
     AXE_engine_t engine;
     AXE_engine_attr_t engine_attr;
+    _Bool engine_init = FALSE;
     nx_wait_t task_data;
     AXE_status_t status;
 
@@ -7789,6 +7823,7 @@ test_nx_wait_helper(AXE_engine_t _engine, size_t num_necessary_parents,
         TEST_ERROR;
     if(AXEcreate_engine(&engine, &engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = TRUE;
 
     /* Initialize task_data */
     task_data.task = 0;
@@ -7940,6 +7975,7 @@ test_nx_wait_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     AXE_test_exclude_close_on(engine);
     if(AXEterminate_engine(engine, TRUE) != AXE_SUCCEED)
         TEST_ERROR;
+    engine_init = FALSE;
 
     /* Release threads used by engine */
     MAX_NTHREADS_RELEASE(helper_data->num_threads, TEST_ERROR);
@@ -7953,8 +7989,10 @@ test_nx_wait_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     return;
 
 error:
-    (void)AXEterminate_engine(engine, FALSE);
-    MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    if(engine_init) {
+        (void)AXEterminate_engine(engine, FALSE);
+        MAX_NTHREADS_RELEASE(helper_data->num_threads, );
+    } /* end if */
 
     (void)AXEengine_attr_destroy(&engine_attr);
 
@@ -7997,7 +8035,7 @@ test_serial(AXE_task_op_t helper, size_t num_threads, size_t niter,
 #endif /* AXE_DEBUG_PERF */
 
     helper_data.engine = NULL;
-    
+
     /* Initialize engine attribute */
     if(AXEengine_attr_init(&engine_attr) != AXE_SUCCEED)
         TEST_ERROR;
