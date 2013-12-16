@@ -12,7 +12,7 @@ TESTS = check_max_nthreads test_axe test_id
 test_axe.log: check_max_nthreads.log
 test_id.log: check_max_nthreads.log
 
-check_PROGRAMS = $(TESTS)
+noinst_PROGRAMS = $(TESTS)
 
 AM_LDFLAGS = -L../src
 LDADD = -laxe

@@ -588,7 +588,7 @@ AXE_task_wait(AXE_task_int_t *task)
     is_mutex_locked = TRUE;
 
     /* Check if the task is already complete (or canceled) */
-    if(((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_DONE)
+    while(((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_DONE)
             && ((AXE_status_t)OPA_load_int(&task->status) != AXE_TASK_CANCELED))
         /* Wait for signal */
         if(0 != pthread_cond_wait(&task->wait_cond, &task->task_mutex))

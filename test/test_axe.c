@@ -462,11 +462,9 @@ test_simple_helper(AXE_engine_t engine, size_t num_necessary_parents,
      */
     if(0 != pthread_mutex_lock(dyn_task_data->cond_mutex))
         TEST_ERROR;
-    if(dyn_task_data->cond_signal_sent != 1)
+    while(dyn_task_data->cond_signal_sent != 1)
         if(0 != pthread_cond_wait(dyn_task_data->cond, dyn_task_data->cond_mutex))
             TEST_ERROR;
-    if(dyn_task_data->cond_signal_sent != 1)
-        TEST_ERROR;
     if(0 != pthread_mutex_unlock(dyn_task_data->cond_mutex))
         TEST_ERROR;
 
@@ -3147,7 +3145,7 @@ test_free_op_data_helper(AXE_engine_t engine, size_t num_necessary_parents,
      * called */
     if(0 != pthread_mutex_lock(&(task_data[0])->cond_mutex))
         TEST_ERROR;
-    if(OPA_load_int(&(task_data[0])->ncalls) == 0)
+    while(OPA_load_int(&(task_data[0])->ncalls) == 0)
         if(0 != pthread_cond_wait(&(task_data[0])->cond, &(task_data[0])->cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(&(task_data[0])->cond_mutex))
@@ -3225,7 +3223,7 @@ test_free_op_data_helper(AXE_engine_t engine, size_t num_necessary_parents,
     for(i = 0; i <= 2; i++) {
         if(0 != pthread_mutex_lock(&(task_data[i])->cond_mutex))
             TEST_ERROR;
-        if(OPA_load_int(&(task_data[i])->ncalls) != 1)
+        while(OPA_load_int(&(task_data[i])->ncalls) != 1)
             if(0 != pthread_cond_wait(&(task_data[i])->cond, &(task_data[i])->cond_mutex))
                 TEST_ERROR;
         if(0 != pthread_mutex_unlock(&(task_data[i])->cond_mutex))
@@ -3315,7 +3313,7 @@ test_free_op_data_helper(AXE_engine_t engine, size_t num_necessary_parents,
         for(i = 0; i <= 2; i++) {
             if(0 != pthread_mutex_lock(&(task_data[i])->cond_mutex))
                 TEST_ERROR;
-            if(OPA_load_int(&(task_data[i])->ncalls) != 1)
+            while(OPA_load_int(&(task_data[i])->ncalls) != 1)
                 if(0 != pthread_cond_wait(&(task_data[i])->cond, &(task_data[i])->cond_mutex))
                     TEST_ERROR;
             if(0 != pthread_mutex_unlock(&(task_data[i])->cond_mutex))
@@ -3431,7 +3429,7 @@ test_remove_helper(AXE_engine_t engine, size_t num_necessary_parents,
     /* Wait for condition signal so we know the task is in progress */
     if(0 != pthread_mutex_lock(task_data[0].cond_mutex))
         TEST_ERROR;
-    if(task_data[0].cond_signal_sent == 0)
+    while(task_data[0].cond_signal_sent == 0)
         if(0 != pthread_cond_wait(task_data[0].cond, task_data[0].cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(task_data[0].cond_mutex))
@@ -3530,7 +3528,7 @@ test_remove_helper(AXE_engine_t engine, size_t num_necessary_parents,
     /* Wait for condition signal so we know the task is in progress */
     if(0 != pthread_mutex_lock(task_data[0].cond_mutex))
         TEST_ERROR;
-    if(task_data[0].cond_signal_sent == 0)
+    while(task_data[0].cond_signal_sent == 0)
         if(0 != pthread_cond_wait(task_data[0].cond, task_data[0].cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(task_data[0].cond_mutex))
@@ -3651,7 +3649,7 @@ test_remove_helper(AXE_engine_t engine, size_t num_necessary_parents,
     /* Wait for condition signal so we know the task is in progress */
     if(0 != pthread_mutex_lock(task_data[0].cond_mutex))
         TEST_ERROR;
-    if(task_data[0].cond_signal_sent == 0)
+    while(task_data[0].cond_signal_sent == 0)
         if(0 != pthread_cond_wait(task_data[0].cond, task_data[0].cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(task_data[0].cond_mutex))
@@ -3984,7 +3982,7 @@ test_remove_all_helper(AXE_engine_t _engine, size_t num_necessary_parents,
      */
     if(0 != pthread_mutex_lock(task_data[1].cond_mutex))
         TEST_ERROR;
-    if(task_data[1].cond_signal_sent == 0)
+    while(task_data[1].cond_signal_sent == 0)
         if(0 != pthread_cond_wait(task_data[1].cond, task_data[1].cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(task_data[1].cond_mutex))
@@ -4884,7 +4882,7 @@ test_num_threads_helper(AXE_engine_t _engine, size_t num_necessary_parents,
     /* Wait for condition signal so we know the parent task is in progress */
     if(0 != pthread_mutex_lock(&cond_mutex))
         TEST_ERROR;
-    if(task_data[0].cond_signal_sent == 0)
+    while(task_data[0].cond_signal_sent == 0)
         if(0 != pthread_cond_wait(&cond, &cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(&cond_mutex))
@@ -5240,7 +5238,7 @@ test_fractal_helper(AXE_engine_t engine, size_t num_necessary_parents,
     /* Wait for condition signal that all tasks finished */
     if(0 != pthread_mutex_lock(&shared_task_data.cond_mutex))
         TEST_ERROR;
-    if(OPA_load_int(&shared_task_data.num_tasks_left_end) > 0)
+    while(OPA_load_int(&shared_task_data.num_tasks_left_end) > 0)
         if(0 != pthread_cond_wait(&shared_task_data.cond, &shared_task_data.cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(&shared_task_data.cond_mutex))
@@ -5392,7 +5390,7 @@ test_fractal_nodep_helper(AXE_engine_t engine, size_t num_necessary_parents,
     /* Wait for condition signal that all tasks finished */
     if(0 != pthread_mutex_lock(&task_data.cond_mutex))
         TEST_ERROR;
-    if(OPA_load_int(&task_data.num_tasks_left_end) > 0)
+    while(OPA_load_int(&task_data.num_tasks_left_end) > 0)
         if(0 != pthread_cond_wait(&task_data.cond, &task_data.cond_mutex))
             TEST_ERROR;
     if(0 != pthread_mutex_unlock(&task_data.cond_mutex))

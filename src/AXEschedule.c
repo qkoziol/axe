@@ -904,7 +904,7 @@ AXE_schedule_wait_all(AXE_schedule_t *schedule)
         ERROR;
 
     /* Check if all tasks are already complete */
-    if(OPA_load_int(&schedule->num_tasks) > 0)
+    while(OPA_load_int(&schedule->num_tasks) > 0)
         /* Wait for signal */
         if(0 != pthread_cond_wait(&schedule->wait_all_cond, &schedule->wait_all_mutex))
             ERROR;

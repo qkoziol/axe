@@ -18,7 +18,7 @@ struct AXE_thread_pool_t {
     OPA_Queue_info_t        thread_queue;       /* Queue of threads available to be run */
     pthread_mutex_t         thread_queue_mutex; /* Mutex for dequeueing from thread_queue, and checking thread_wait_cond */
     pthread_attr_t          thread_attr;        /* Pthread attribute for thread creation */
-    OPA_int_t               closing;            /* Boolean variable indicating if the thread pool is shutting down.  Needed to prevent race conditions. */
+    OPA_int_t               closing;            /* Boolean variable indicating if the thread pool is shutting down */
     OPA_int_t               num_sleeping_threads; /* Number of threads that are enqueued or may be enqueued soon and should be considered "available" */
     _Bool                   exclusive_waiter;   /* Whether an "exclusive" thread is waiting */
     int                     num_waiters;        /* Number of threads waiting for a thread */
@@ -32,6 +32,7 @@ struct AXE_thread_t {
     OPA_Queue_element_hdr_t thread_queue_hdr;   /* Header for insertion into thread pool's "thread_queue" */
     AXE_thread_pool_t       *thread_pool;       /* The thread pool this thread resides in */
     pthread_cond_t          thread_cond;        /* Condition variable for signaling this thread to run */
+    _Bool                   thread_signaled;    /* Whether the thread has been signaled to run */
     pthread_mutex_t         thread_mutex;       /* Mutex associated with thread_cond */
     AXE_thread_op_t         thread_op;          /* Internal callback function for thread to execute */
     void                    *thread_op_data;    /* User data pointer passed to thread_op */
@@ -130,6 +131,7 @@ AXE_thread_pool_create(size_t num_threads,
         thread->thread_pool = *thread_pool;
         if(0 != pthread_cond_init(&thread->thread_cond, NULL))
             ERROR;
+        thread->thread_signaled = FALSE;
         if(0 != pthread_mutex_init(&thread->thread_mutex, NULL))
             ERROR;
         thread->thread_op = NULL;
@@ -438,6 +440,9 @@ AXE_thread_pool_launch(AXE_thread_t *thread, AXE_thread_op_t thread_op,
         thread->thread_op = thread_op;
         thread->thread_op_data = thread_op_data;
 
+        /* Set thread_signaled */
+        thread->thread_signaled = TRUE;
+
         /* Send condition signal to wake up thread */
         if(0 != pthread_cond_signal(&thread->thread_cond))
             ERROR;
@@ -474,7 +479,7 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
     size_t i;
     AXE_error_t ret_value = AXE_SUCCEED;
 
-    /* Mark thread pool as closing, to prevent rare race condition */
+    /* Mark thread pool as closing */
     OPA_store_int(&thread_pool->closing, TRUE);
 
     /* Lock thread queue mutex */
@@ -508,6 +513,9 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
          * task with a shutdown request. */
         thread->thread_op = NULL;
         thread->thread_op_data = NULL;
+
+        /* Set thread_signaled */
+        thread->thread_signaled = TRUE;
 
         /* Send condition signal to wake up thread.  Because thread_op is NULL,
          * the thread will terminate.  The thread will release its own
@@ -604,20 +612,19 @@ AXE_thread_pool_worker(void *_thread)
     if(0 != pthread_mutex_lock(&thread->thread_mutex))
         ERROR_RET(thread);
 
-    /* Check if the thread pool is shutting down (to prevent the race condition
-     * where the thread pool already sent the signal to shut down before this
-     * thread locked its mutex) */
-    if(!OPA_load_int(&thread->thread_pool->closing)) {
-        /* Push thread onto free thread queue */
-        if(AXE_thread_pool_release(thread) != AXE_SUCCEED)
-            ERROR_RET(thread);
+    /* Push thread onto free thread queue */
+    if(AXE_thread_pool_release(thread) != AXE_SUCCEED)
+        ERROR_RET(thread);
 
-        /* Wait until signaled to run */
+    /* Wait until signaled to run.  Note it is possible for the signal to be
+     * sent before we get here if the thread pool is shut down before this
+     * function locks the thread mutex. */
+    while(!thread->thread_signaled)
         if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
             ERROR_RET(thread);
-    } /* end if */
-    else
-        assert(!thread->thread_op);
+
+    /* Reset thread_signaled */
+    thread->thread_signaled = FALSE;
 
     /* Main loop - when thread_op is set to NULL, shut down */
     while(thread->thread_op) {
@@ -644,8 +651,14 @@ AXE_thread_pool_worker(void *_thread)
          * attempts to lock any mutex.  This is to prevent deadlocks. */
 
         /* Wait until signaled to run again */
-        if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
-            ERROR_RET(thread);
+        assert(!thread->thread_signaled);
+        do {
+            if(0 != pthread_cond_wait(&thread->thread_cond, &thread->thread_mutex))
+                ERROR_RET(thread);
+        } while(!thread->thread_signaled);
+
+        /* Reset thread_signaled */
+        thread->thread_signaled = FALSE;
     } /* end while */
 
 done:
