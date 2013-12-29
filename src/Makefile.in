@@ -272,7 +272,6 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-AM_CFLAGS = -Wall
 
 # Set the soversion number for the shared library
 libaxe_la_LDFLAGS = -version-info 1:0:0

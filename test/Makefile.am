@@ -5,8 +5,6 @@
 # governing use, modification, and redistribution, is contained in the file
 # COPYING at the root of the source code distribution tree.
 
-AM_CFLAGS = -Wall
-
 TESTS = check_max_nthreads test_axe test_id
 
 test_axe.log: check_max_nthreads.log
