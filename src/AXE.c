@@ -495,12 +495,13 @@ done:
  *
  * Purpose:     Terminate an asynchronous execution engine.  The engine
  *              will first deal with uncompleted tasks.  If the function
- *              parameter wait_all is set to true, then this function
- *              blocks the program execution until all uncompleted tasks
- *              complete.  Otherwise, tasks that have not begun running
- *              will be canceled and the function blocks until all running
- *              tasks complete. Afterwards, all allocated resources will
- *              be released and the instance engine terminates.
+ *              parameter wait_all is set to true (non-zero), then this
+ *              function blocks the program execution until all
+ *              uncompleted tasks complete.  Otherwise, tasks that have
+ *              not begun running will be canceled and the function blocks
+ *              until all running tasks complete. Afterwards, all
+ *              allocated resources will be released and the instance
+ *              engine terminates.
  *
  *              Any concurrent or subsequent use of this engine or the
  *              tasks within it is an error and will result in undefined
@@ -522,7 +523,7 @@ done:
  *-------------------------------------------------------------------------
  */
 AXE_error_t
-AXEterminate_engine(AXE_engine_t engine, _Bool wait_all)
+AXEterminate_engine(AXE_engine_t engine, int wait_all)
 {
     AXE_error_t ret_value = AXE_SUCCEED;
 

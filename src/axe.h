@@ -10,6 +10,7 @@
 #ifndef AXE_H_INCLUDED
 #define AXE_H_INCLUDED
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -106,7 +107,7 @@ AXE_error_t AXEget_num_id_mutexes(const AXE_engine_attr_t *attr,
     size_t *num_mutexes);
 AXE_error_t AXEcreate_engine(AXE_engine_t *engine/*out*/,
     const AXE_engine_attr_t *attr);
-AXE_error_t AXEterminate_engine(AXE_engine_t engine, _Bool wait_all);
+AXE_error_t AXEterminate_engine(AXE_engine_t engine, int wait_all);
 AXE_error_t AXEgenerate_task_id(AXE_engine_t engine, AXE_task_t *task);
 AXE_error_t AXErelease_task_id(AXE_engine_t engine, AXE_task_t task);
 AXE_error_t AXEcreate_task(AXE_engine_t engine, AXE_task_t task,

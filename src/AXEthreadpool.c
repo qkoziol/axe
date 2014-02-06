@@ -23,6 +23,7 @@ struct AXE_thread_pool_t {
     _Bool                   exclusive_waiter;   /* Whether an "exclusive" thread is waiting */
     int                     num_waiters;        /* Number of threads waiting for a thread */
     pthread_cond_t          thread_wait_cond;   /* Condition variable for waiting for thread */
+    _Bool                   blocking;           /* Whether requests for new threads are being temporarily blocked */
     size_t                  num_threads;        /* Number of threads */
     AXE_thread_t            **threads;          /* Array of thread structs */
 };
@@ -110,6 +111,9 @@ AXE_thread_pool_create(size_t num_threads,
     if(0 != pthread_cond_init(&(*thread_pool)->thread_wait_cond, NULL))
         ERROR;
     is_thread_wait_cond_init = TRUE;
+
+    /* Initialize blocking */
+    (*thread_pool)->blocking = FALSE;
 
     /* Allocate threads array */
     if(NULL == ((*thread_pool)->threads = (AXE_thread_t **)malloc(num_threads * sizeof(AXE_thread_t *))))
@@ -248,10 +252,18 @@ AXE_thread_pool_try_acquire(AXE_thread_pool_t *thread_pool,
             thread_pool->num_waiters++;
         } /* end if */
 
+        /* Mark thread pool as blocking thread requests.  Seems to be necessary
+         * on OSX for reasons that aren't clear - perhaps some sort of
+         * opimizations of pthread_cond_wait expecting a single condition
+         * controlling the condvar. */
+        thread_pool->blocking = TRUE;
+
         /* Queue is empty and threads should soon become available.  Wait for
          * signal. */
-        if(0 != pthread_cond_wait(&thread_pool->thread_wait_cond, &thread_pool->thread_queue_mutex))
-            ERROR;
+        do {
+            if(0 != pthread_cond_wait(&thread_pool->thread_wait_cond, &thread_pool->thread_queue_mutex))
+                ERROR;
+        } while(thread_pool->blocking);
     } /* end while */
 
     /* Reset exclusive_waiter flag and num_waiters */
@@ -309,9 +321,14 @@ AXE_thread_pool_release(AXE_thread_t *thread)
 
     /* Send signal that a new thread is available, if any threads are waiting
      * for the signal */
-    if(thread->thread_pool->num_waiters > 0)
+    if(thread->thread_pool->num_waiters > 0) {
+        /* Mark thread pool as no longer blocking */
+        thread->thread_pool->blocking = FALSE;
+
+        /* Send signal */
         if(0 != pthread_cond_signal(&thread->thread_pool->thread_wait_cond))
             ERROR;
+    } /* end if */
 
     /* Unlock thread queue mutex */
     if(0 != pthread_mutex_unlock(&thread->thread_pool->thread_queue_mutex))
@@ -358,9 +375,14 @@ AXE_thread_pool_running(AXE_thread_pool_t *thread_pool)
             ERROR;
 
         /* Send the signal if there are any threads waiting for it */
-        if(thread_pool->num_waiters > 0)
+        if(thread_pool->num_waiters > 0) {
+            /* Mark thread pool as no longer blocking */
+            thread_pool->blocking = FALSE;
+
+            /* Send signal */
             if(0 != pthread_cond_broadcast(&thread_pool->thread_wait_cond))
                 ERROR;
+        } /* end if */
 
         /* Unlock thread queue mutex */
         if(0 != pthread_mutex_unlock(&thread_pool->thread_queue_mutex))
@@ -488,9 +510,14 @@ AXE_thread_pool_free(AXE_thread_pool_t *thread_pool)
 
     /* Signal that the thread pool is closing, if any threads are waiting for a
      * thread to become available */
-    if(thread_pool->num_waiters > 0)
+    if(thread_pool->num_waiters > 0) {
+        /* Mark thread pool as no longer blocking */
+        thread_pool->blocking = FALSE;
+
+        /* Send signal */
         if(0 != pthread_cond_broadcast(&thread_pool->thread_wait_cond))
             ERROR;
+    } /* end if */
 
     /* Unlock thread queue mutex */
     if(0 != pthread_mutex_unlock(&thread_pool->thread_queue_mutex))
