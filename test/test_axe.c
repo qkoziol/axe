@@ -8490,7 +8490,7 @@ main(int argc, char **argv)
     for(i = 0; i < (sizeof(num_threads_g) / sizeof(num_threads_g[0])); i++) {
         /* Check if we can run with this many threads */
         MAX_NTHREADS_CHECK_STATIC_IF(num_threads_g[i]) {
-            printf("----Testing with %d threads----\n", (int)num_threads_g[i]); fflush(stdout);
+            printf("----Testing with %d thread%s----\n", (int)num_threads_g[i], num_threads_g[i] == 1 ? "" : "s"); fflush(stdout);
 
             /* The tests */
             nerrors += test_serial(test_simple_helper, num_threads_g[i], SIMPLE_NITER / iter_reduction_g[i], TRUE, "simple tasks");

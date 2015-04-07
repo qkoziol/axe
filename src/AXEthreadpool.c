@@ -236,9 +236,17 @@ AXE_thread_pool_try_acquire(AXE_thread_pool_t *thread_pool,
      * always called after pthread_cond_wait(), so the mutex lock is not
      * interrupted between the last call to OPA_Queue_is_empty() and the call to
      * OPA_Queue_dequeue(). */
-    while((is_empty = OPA_Queue_is_empty(&thread_pool->thread_queue))
-            && (OPA_load_int(&thread_pool->num_sleeping_threads) > 0)
-            && !OPA_load_int(&thread_pool->closing)) {
+    while(is_empty = OPA_Queue_is_empty(&thread_pool->thread_queue)) {
+        /* Read barrier so the check on sleeping_threads happens after the
+         * failed acquire */
+        OPA_read_barrier();
+
+        /* Check if all workers are busy and guaranteed to check the schedule
+         * before sleeping, or if the thread pool is closing */
+        if((OPA_load_int(&thread_pool->num_sleeping_threads) == 0)
+                || OPA_load_int(&thread_pool->closing))
+            break;
+
         /* Check to see if we should give up due to an exclusive waiter, and
          * set the thread pool's exclusive_waiter flag if appropriate.  Also
          * increment the number of waiters so signals get sent. */

@@ -4,7 +4,7 @@ AXE
 -----------------------------------------------------------------------------
 
 AXE 
-Copyright 2014 The HDF Group
+Copyright 2013-2014 The HDF Group
 
 
 All rights reserved.

@@ -290,7 +290,7 @@ AXE_id_generate(AXE_id_table_t *id_table, AXE_id_t *id)
          * before this thread adds it to the table. */
         if(0 != pthread_mutex_unlock(&id_table->next_id_mutex))
             ERROR;
-    } /* end if */
+    } /* end else */
 
     /* Return generated id */
     *id = id_entry->id;
